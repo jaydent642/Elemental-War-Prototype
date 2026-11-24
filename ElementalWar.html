@@ -525,7 +525,8 @@ function startGameWith(seatList, auto) {
 function startBuildingTurn() {
   const p = cur(), F = FAC[p.f];
   log(`Round ${S.round} - ${F.title}: Building turn.`, "sys");
-  if (S.auto) {
+  if (S.round === 1) log("Round 1: no income and no card draw yet - you start with your starting Food, Money and 3 cards.");
+  if (S.auto && S.round > 1) {
     let food = DATA.econ.FoodIncome, money = econFor("MoneyIncome", p.f); const parts = [`base +${food} Food +${money} Money`];
     const outp = S.tokens.filter(t => t.kind === "control" && t.f === p.f).length;
     const towns = S.tokens.filter(t => t.kind === "capture" && t.captured && t.f === p.f).length;
@@ -536,8 +537,10 @@ function startBuildingTurn() {
     p.food += food; p.money += money;
     log(`${F.title} income: +${food} Food, +${money} Money (${parts.join("; ")}). Other Engines and passives: add by hand.`);
   }
-  const n = draw(p, 2 + (heartHolder() === p.f ? 1 : 0));
-  log(`${F.title} draws ${n} card(s)${heartHolder() === p.f ? " (Heart: +1)" : ""}.`);
+  if (S.round > 1) {
+    const n = draw(p, 2 + (heartHolder() === p.f ? 1 : 0));
+    log(`${F.title} draws ${n} card(s)${heartHolder() === p.f ? " (Heart: +1)" : ""}.`);
+  }
   for (const ip of p.inplay) { const d = cardDef(ip); if (d.type === "Project" && ip.markers > 0) { ip.markers--; if (!ip.markers) log(`${F.title}'s Project ${d.name} is now ACTIVE.`, "sys"); } }
   if (p.f === "nature") for (const u of S.units.filter(u => u.f === "nature" && u.dmg > 0 && terrain(u.r, u.c) === "forest")) { u.dmg = Math.max(0, u.dmg - 2); log(`Regrowth: ${F.title} ${u.cls} heals 2.`); }
   ui.view = S.turn; ui.showHand = false; ui.sel = null; ui.mode = null; ui.cardSel = null;
