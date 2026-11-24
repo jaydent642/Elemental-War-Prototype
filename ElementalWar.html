@@ -581,10 +581,12 @@ function endOfRound() {
       } else if (!t && here && !(u && u.f !== p.f)) { S.tokens.push({ kind: "capture", f: p.f, r, c, captured: false }); log(`${F.title} starts capturing a Town (CAPTURING token placed).`); }
     }
   }
+  // Upkeep: 1 Food per unit. Recorded in S.summary so every screen can show it before the next round starts.
+  S.summary = { round: S.round, rows: [] };
   if (S.auto) for (const p of S.players.filter(alive)) {
-    const n = S.units.filter(u => u.f === p.f).length, cost = n * DATA.econ.Upkeep, F = FAC[p.f];
-    if (p.food >= cost) { p.food -= cost; log(`${F.title} pays upkeep: ${cost} Food for ${n} units.`); }
-    else { const short = cost - p.food; p.food = 0; log(`${F.title} can't pay upkeep (${cost} Food): remove ${short} unit(s), promoted units before Soldiers.`, "sys"); }
+    const n = S.units.filter(u => u.f === p.f).length, cost = n * DATA.econ.Upkeep, F = FAC[p.f], before = p.food;
+    if (p.food >= cost) { p.food -= cost; log(`${F.title} pays upkeep: ${cost} Food for ${n} units (Food ${before} -> ${p.food}).`); S.summary.rows.push({ f: p.f, n, cost, before, after: p.food, short: 0 }); }
+    else { const short = cost - p.food; p.food = 0; log(`${F.title} can't pay upkeep (${cost} Food, has ${before}): remove ${short} unit(s), promoted units before Soldiers.`, "sys"); S.summary.rows.push({ f: p.f, n, cost, before, after: 0, short }); }
   }
 }
 
@@ -732,6 +734,19 @@ function layout() {
 function render() {
   if (!S) return;
   renderStatus(); renderBoard(); renderPlayers(); renderPlayerBox(); renderSel(); renderLog();
+  showRoundSummary();
+}
+let seenSummary = null;
+function showRoundSummary() {
+  const sm = S.summary;
+  if (!sm || !sm.rows.length || seenSummary === S.round + ":" + sm.round || S.round !== sm.round + 1) return;
+  seenSummary = S.round + ":" + sm.round;
+  const rows = sm.rows.map(r => { const F = FAC[r.f];
+    return `<tr><td><b style="color:${F.color}">${esc(F.title)}</b></td><td>${r.n} units</td><td>-${r.cost} Food</td><td>${r.before} &rarr; ${r.after}</td>
+      <td>${r.short ? `<b style="color:#c92a2a">Short ${r.short}: remove ${r.short} unit${r.short > 1 ? "s" : ""} (promoted before Soldiers)</b>` : "Paid"}</td></tr>`; }).join("");
+  msg(`<h2>End of round ${sm.round}: upkeep</h2><p class="hint">Every unit costs ${DATA.econ.Upkeep} Food at the end of the round. Round ${S.round} income comes next, at the start of each player's Building turn.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">${rows}</table>
+    ${sm.rows.some(r => r.short) ? `<p class="hint">To remove a unit: click it, then <b>Remove unit</b>.</p>` : ""}`);
 }
 function renderStatus() {
   const p = cur(), F = FAC[p.f];
