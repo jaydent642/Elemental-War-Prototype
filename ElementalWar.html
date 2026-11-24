@@ -909,6 +909,8 @@ function onBoardClick(e) {
       return act("move", () => { log(`${FAC[selU.f].title} ${selU.cls} moves.`); selU.r = r; selU.c = c; selU.moved = S.round; });
     const tg = targetsFor(selU).find(t => t.r === r && t.c === c);
     if (ctl && tg && (!u || u.f !== selU.f)) return openBattle(selU, tg);
+    const held = heldBy(r, c);
+    if (ui.freeMove && held && held !== selU.f) return toast(`That ${TOWN.has(key(r, c)) ? "Town" : "Outpost"} is held by ${FAC[held].title}: only their units can stand there.`);
     if (ui.freeMove && (owns(selU.f) || isHost()) && !u && !isCampSquare(r, c)) return act("free move", () => { log(`${FAC[selU.f].title} ${selU.cls} is moved by hand.`); selU.r = r; selU.c = c; });
   }
   ui.sel = u ? { unit: u.id } : camp ? { camp: camp.f } : null;
