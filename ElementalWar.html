@@ -92,12 +92,21 @@ select, input { font: inherit; padding: 3px 5px; border: 1px solid #9c9178; bord
 .result { margin-top: 10px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; white-space: pre-wrap; font-size: 13px; }
 .refimg { width: 100%; height: auto; border-radius: 6px; }
 @media (max-width: 1100px) { #main { flex-direction: column; } #side { min-width: 0; width: 100%; } }
+#toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #2b2a26; color: #fff; padding: 8px 14px; border-radius: 8px; z-index: 80; display: none; max-width: 90vw; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.code { font-family: "Russo One", sans-serif; font-size: 34px; letter-spacing: 4px; background: #fff; border: 2px dashed var(--accent); border-radius: 8px; padding: 2px 14px; display: inline-block; }
+.lob { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; align-items: center; margin: 4px 0; }
+.choice { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.choice button { padding: 14px; text-align: left; width: 100%; }
+#chat { display: none; gap: 6px; margin-top: 6px; } #chat input { flex: 1; }
+#log .chat { color: #1864ab; }
+#netInfo { font-size: 12px; opacity: .85; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 <div id="topbar">
   <span class="title">ELEMENTAL WAR</span>
-  <span id="status"></span>
+  <span id="status"></span><span id="netInfo"></span>
   <span class="spacer"></span>
   <button id="btnDice">Roll dice</button>
   <button id="btnRef">Rules sheets</button>
@@ -113,13 +122,27 @@ select, input { font: inherit; padding: 3px 5px; border: 1px solid #9c9178; bord
     <div class="box"><div class="players" id="players"></div></div>
     <div class="box" id="playerBox"></div>
     <div class="box" id="selBox"></div>
-    <div class="box"><h3>Log</h3><div id="log"></div></div>
+    <div class="box"><h3>Log</h3><div id="log"></div><div id="chat"><input id="chatIn" placeholder="Message to everyone..." maxlength="200"><button id="btnChat">Send</button></div></div>
   </div>
 </div>
 <div id="tip"></div>
 <div id="zoom"></div>
 <input type="file" id="fileIn" accept=".json" style="display:none">
 
+<div class="modal" id="startModal"><div class="win" style="max-width:760px">
+  <h2>Elemental War</h2>
+  <div class="row" style="margin-bottom:12px"><label>Your name <input id="myName" maxlength="20" placeholder="Name"></label></div>
+  <div class="choice">
+    <button id="chLocal"><b>Play on this computer</b><br><span class="hint">Everyone shares one screen (pass and play).</span></button>
+    <button id="chHost"><b>Host an online game</b><br><span class="hint">Get a room code to send to your friends.</span></button>
+    <div><button id="chJoin"><b>Join an online game</b><br><span class="hint">Type the host's room code below.</span></button>
+      <input id="joinCode" placeholder="Room code" maxlength="5" style="margin-top:6px;width:100%;text-transform:uppercase"></div>
+  </div>
+  <div id="startMsg" class="hint" style="margin-top:10px"></div>
+  <div class="row" id="resumeRow" style="margin-top:10px"></div>
+</div></div>
+<div class="modal" id="lobbyModal"><div class="win" style="max-width:720px"><div id="lobbyBody"></div></div></div>
+<div id="toast"></div>
 <div class="modal" id="setupModal"><div class="win" style="max-width:620px">
   <h2>New game</h2>
   <p class="hint">Pick 2 to 4 players. Each player chooses a faction and a corner of the board. Turn order always follows the faction order (Conquerors first, Paladins last).</p>
@@ -160,6 +183,143 @@ let S = null;               // the saved game state
 let undoStack = [];
 let ui = { view: null, sel: null, mode: null, cardSel: null, showHand: false, freeMove: false };
 
+// ---------- online play (peer-to-peer through PeerJS) ----------
+// The host's browser keeps the official game. A player's change is sent to the host as the whole new state plus the
+// version it was based on; the host accepts it only if nobody changed the game in between, then passes it to everyone.
+const PEER_PREFIX = "elementalwar-";
+const net = { role: null, peer: null, conns: [], hostConn: null, code: null, name: "", seat: null, lobby: null, tries: 0 };
+function online() { return !!net.role; }
+function isHost() { return !net.role || net.role === "host"; }
+function owns(fk) { return !net.role || net.seat === fk; }
+function myTurn() { return !net.role || (S && S.players.length && cur().f === net.seat); }
+function seatOf(name) { if (!S || !S.online) return null; return Object.keys(S.online.seats).find(f => S.online.seats[f] === name) || null; }
+let toastT;
+function toast(t) { const el = $("toast"); el.textContent = t; el.style.display = "block"; clearTimeout(toastT); toastT = setTimeout(() => el.style.display = "none", 4500); }
+function genCode() { const s = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let c = ""; for (let i = 0; i < 5; i++) c += s[Math.floor(Math.random() * s.length)]; return c; }
+function broadcast(msg, except) { for (const c of net.conns) if (c !== except && c.open) c.send(msg); }
+function netPush(base) {
+  if (net.role === "host") broadcast({ t: "state", state: S });
+  else if (net.role === "client") {
+    if (net.hostConn && net.hostConn.open) net.hostConn.send({ t: "push", base, state: S });
+    else toast("Not connected to the host: that change was only made on your screen.");
+  }
+}
+function hostGame(code, resume) {
+  net.role = "host"; net.code = code || genCode(); net.conns = [];
+  net.lobby = resume ? { players: S.players.map(p => ({ name: p.name, f: p.f, cor: p.cor, gone: true })) } : { players: [{ name: net.name, f: null, cor: null }] };
+  if (resume) { const me = net.lobby.players.find(p => p.name === net.name); if (me) me.gone = false; }
+  $("startMsg").textContent = "Opening the room...";
+  net.peer = new Peer(PEER_PREFIX + net.code);
+  net.peer.on("open", () => {
+    if (resume) { $("startModal").classList.remove("open"); net.seat = seatOf(net.name); ui.view = Math.max(0, pIndex(net.seat)); save(); render(); toast(`Room ${net.code} is open again. Friends can rejoin with the same code.`); }
+    else showLobby();
+  });
+  net.peer.on("connection", conn => {
+    conn.on("open", () => net.conns.push(conn));
+    conn.on("data", d => hostOnData(conn, d));
+    conn.on("close", () => {
+      net.conns = net.conns.filter(c => c !== conn);
+      const pl = net.lobby.players.find(p => p.name === conn.name); if (pl) pl.gone = true;
+      if (conn.name) toast(`${conn.name} disconnected.`);
+      if ($("lobbyModal").classList.contains("open")) broadcastLobby();
+    });
+  });
+  net.peer.on("disconnected", () => { try { net.peer.reconnect(); } catch (e) {} });
+  net.peer.on("error", e => {
+    if (e.type === "unavailable-id" && !resume) { net.peer.destroy(); hostGame(null, false); return; }
+    $("startMsg").textContent = `Couldn't open the room (${e.type}).` + (e.type === "unavailable-id" ? " The old room is still closing: wait a few seconds and try again." : "");
+    toast("Connection problem: " + e.type);
+  });
+}
+function hostOnData(conn, d) {
+  const inGame = S && S.online && S.phase !== "setup";
+  if (d.t === "hello") {
+    conn.name = d.name;
+    const pl = net.lobby.players.find(p => p.name === d.name);
+    if (pl) pl.gone = false; else if (!inGame || $("lobbyModal").classList.contains("open")) net.lobby.players.push({ name: d.name, f: null, cor: null });
+    if ($("lobbyModal").classList.contains("open") || !inGame) broadcastLobby();
+    else { conn.send({ t: "state", state: S }); toast(`${d.name} joined.`); }
+  } else if (d.t === "seat") {
+    const pl = net.lobby.players.find(p => p.name === conn.name); if (pl) { pl.f = d.f; pl.cor = d.cor; } broadcastLobby();
+  } else if (d.t === "push") {
+    if ((d.base || 0) === (S.ver || 0)) { snapshot(); S = d.state; save(); render(); broadcast({ t: "state", state: S }, conn); }
+    else conn.send({ t: "reject", state: S });
+  }
+}
+function joinGame(code) {
+  net.role = "client"; net.code = code; net.tries = 0;
+  $("startMsg").textContent = "Connecting...";
+  net.peer = new Peer();
+  net.peer.on("open", connectToHost);
+  net.peer.on("error", e => {
+    if (e.type === "peer-unavailable") {
+      if (S && S.online && S.online.code === net.code) retryHost();   // mid-game: the host may be reloading - keep trying
+      else { $("startMsg").textContent = "No game found with that code (or the host's page is closed)."; toast("Can't reach the host."); }
+    }
+    else toast("Connection problem: " + e.type);
+  });
+}
+function connectToHost() {
+  const c = net.peer.connect(PEER_PREFIX + net.code, { reliable: true });
+  net.hostConn = c;
+  c.on("open", () => { net.tries = 0; net.fresh = true; c.send({ t: "hello", name: net.name }); });
+  c.on("data", clientOnData);
+  c.on("close", retryHost);
+}
+function retryHost() {
+  if (net.retrying) return;
+  if (net.tries++ >= 60) return toast("Gave up reconnecting. Reload the page and join again.");
+  net.retrying = true; toast("Lost the connection to the host - reconnecting...");
+  setTimeout(() => { net.retrying = false; if (net.peer.disconnected) { try { net.peer.reconnect(); } catch (e) {} } connectToHost(); }, 3000);
+}
+function clientOnData(d) {
+  if (d.t === "lobby") { net.lobby = d.lobby; showLobby(); return; }
+  if (d.t === "state" || d.t === "reject") {
+    const first = net.fresh || !S || !S.online || S.online.code !== net.code; net.fresh = false;
+    S = d.state; net.seat = seatOf(net.name);
+    for (const m of ["lobbyModal", "startModal", "setupModal"]) $(m).classList.remove("open");
+    if (first || ui.view == null || !S.players[ui.view]) ui.view = net.seat ? pIndex(net.seat) : 0;
+    if (ui.sel && ui.sel.unit && !S.units.some(u => u.id === ui.sel.unit)) ui.sel = null;
+    save(); render();
+    if (d.t === "reject") toast("Someone else changed the game at the same moment, so your last action was undone. Please do it again.");
+  }
+}
+function showLobby() {
+  const L = net.lobby, host = net.role === "host";
+  const link = location.href.split("#")[0] + "#join=" + net.code;
+  let h = `<h2>Online game lobby</h2><p>Room code: <span class="code">${net.code}</span></p>
+    <p class="hint">Friends open this same page, choose <b>Join an online game</b> and type the code, or open this link:<br><input readonly value="${esc(link)}" style="width:100%" onclick="this.select()"></p>
+    <div class="lob"><b>Player</b><b>Faction</b><b>Corner</b></div>`;
+  for (const pl of L.players) {
+    const me = pl.name === net.name;
+    h += `<div class="lob"><span>${esc(pl.name)}${me ? " (you)" : ""}${pl.gone ? ' <span class="muted">- disconnected</span>' : ""}</span>`;
+    if (me) h += `<select onchange="pickSeat(this.value,null)"><option value="">Choose...</option>${DATA.factions.map(f => `<option value="${f.key}" ${pl.f === f.key ? "selected" : ""}>${f.order}. ${esc(f.title)}</option>`).join("")}</select>
+      <select onchange="pickSeat(null,this.value)"><option value="">Choose...</option>${Object.keys(CORNERS).map(c => `<option value="${c}" ${pl.cor === c ? "selected" : ""}>${CORNERS[c].name}</option>`).join("")}</select>`;
+    else h += `<span>${pl.f ? esc(FAC[pl.f].title) : '<span class="muted">choosing...</span>'}</span><span>${pl.cor ? CORNERS[pl.cor].name : '<span class="muted">choosing...</span>'}</span>`;
+    h += `</div>`;
+  }
+  if (host) h += `<div class="row" style="margin-top:12px"><label><input type="checkbox" id="lobAuto" checked> Auto income &amp; upkeep</label><span style="flex:1"></span>
+      <button class="primary" onclick="hostStart()">Start game</button></div><div id="lobMsg" class="hint" style="color:#c92a2a"></div>`;
+  else h += `<p class="hint">Waiting for the host to start the game...</p>`;
+  $("lobbyBody").innerHTML = h; $("lobbyModal").classList.add("open"); $("startModal").classList.remove("open");
+}
+function pickSeat(f, cor) {
+  const row = net.lobby.players.find(p => p.name === net.name); if (!row) return;
+  if (f !== null) row.f = f || null; if (cor !== null) row.cor = cor || null;
+  if (net.role === "host") broadcastLobby(); else { net.hostConn.send({ t: "seat", f: row.f, cor: row.cor }); showLobby(); }
+}
+function broadcastLobby() { broadcast({ t: "lobby", lobby: net.lobby }); showLobby(); }
+function hostStart() {
+  const ps = net.lobby.players.filter(p => !p.gone), say = t => $("lobMsg").textContent = t;
+  if (ps.length < 2) return say("You need at least 2 players.");
+  if (ps.length > 4) return say("At most 4 players (one per corner).");
+  if (ps.some(p => !p.f || !p.cor)) return say("Everyone must choose a faction and a corner.");
+  if (new Set(ps.map(p => p.f)).size !== ps.length) return say("Each player needs a different faction.");
+  if (new Set(ps.map(p => p.cor)).size !== ps.length) return say("Each player needs a different corner.");
+  $("lobbyModal").classList.remove("open");
+  startGameWith(ps.map(p => ({ f: p.f, cor: p.cor, name: p.name })), $("lobAuto").checked);
+}
+
 function blankState() {
   return { round: 1, phase: "setup", turn: 0, auto: true, players: [], units: [], tokens: [], deck: [], discard: [], log: [], nextId: 1 };
 }
@@ -169,9 +329,16 @@ function pIndex(fk) { return S.players.findIndex(p => p.f === fk); }
 function alive(p) { return !p.out; }
 function stamp() { return S.round + ":" + S.phase + ":" + S.turn; }
 
-function save() { try { localStorage.setItem("elementalwar.save", JSON.stringify(S)); } catch (e) {} }
+function saveKey() { return net.role ? "elementalwar.online" : "elementalwar.save"; }
+function save() {
+  try {
+    localStorage.setItem(saveKey(), JSON.stringify(S));
+    if (net.role) localStorage.setItem("elementalwar.netinfo", JSON.stringify({ role: net.role, code: net.code, name: net.name }));
+  } catch (e) {}
+}
 function snapshot() { undoStack.push(JSON.stringify(S)); if (undoStack.length > 40) undoStack.shift(); }
-function act(label, fn) { snapshot(); fn(); save(); render(); }
+// Every change to the game goes through act(): it bumps the version number and, online, sends the new state on.
+function act(label, fn) { const base = S.ver || 0; if (isHost()) snapshot(); fn(); S.ver = base + 1; save(); render(); netPush(base); }
 function log(msg, cls) { S.log.push({ m: msg, c: cls || "" }); if (S.log.length > 400) S.log.shift(); }
 
 // ---------- stats ----------
@@ -331,10 +498,15 @@ function startGame() {
   const fs = [...document.querySelectorAll("#seats .sf")].map(s => s.value), cs = [...document.querySelectorAll("#seats .sc")].map(s => s.value);
   if (new Set(fs).size !== fs.length) return alert("Each player needs a different faction.");
   if (new Set(cs).size !== cs.length) return alert("Each player needs a different corner.");
-  snapshot();
-  S = blankState(); S.auto = $("optAuto").checked;
-  const seats = fs.map((f, i) => ({ f, cor: cs[i] })).sort((a, b) => FAC[a.f].order - FAC[b.f].order);
-  for (const s of seats) S.players.push({ f: s.f, cor: s.cor, food: DATA.econ.StartFood, money: DATA.econ.StartMoney, hand: [], inplay: [], fUsed: {}, campDmg: 0, out: false });
+  $("setupModal").classList.remove("open");
+  startGameWith(fs.map((f, i) => ({ f, cor: cs[i], name: "" })), $("optAuto").checked);
+}
+function startGameWith(seatList, auto) {
+  if (S && isHost()) snapshot();
+  S = blankState(); S.auto = auto;
+  const seats = seatList.slice().sort((a, b) => FAC[a.f].order - FAC[b.f].order);
+  for (const s of seats) S.players.push({ f: s.f, cor: s.cor, name: s.name || "", food: DATA.econ.StartFood, money: DATA.econ.StartMoney, hand: [], inplay: [], fUsed: {}, campDmg: 0, out: false });
+  if (net.role === "host") { S.online = { code: net.code, seats: {} }; for (const s of seats) S.online.seats[s.f] = s.name; net.seat = seatOf(net.name); }
   DATA.cards.forEach((c, i) => { for (let k = 0; k < c.copies; k++) S.deck.push(i); });
   shuffle(S.deck);
   for (const p of S.players) {
@@ -345,8 +517,8 @@ function startGame() {
   S.phase = "building"; S.turn = 0;
   ui = { view: 0, sel: null, mode: null, cardSel: null, showHand: false, freeMove: false };
   startBuildingTurn();
-  $("setupModal").classList.remove("open");
-  save(); render();
+  if (net.seat) ui.view = pIndex(net.seat);
+  S.ver = 1; save(); render(); netPush(0);
 }
 
 // ---------- turn flow ----------
@@ -424,11 +596,13 @@ function recruitCells(p) {
 }
 function startRecruit() {
   const p = P(ui.view);
+  if (!owns(p.f) || !myTurn()) return toast("You can only recruit for yourself, on your own turn.");
   if (S.units.filter(u => u.f === p.f).length >= DATA.econ.MaxUnits) return msg("<h2>Army full</h2><p>You already have the maximum of 10 units.</p>");
   if (p.food < 1) return msg("<h2>Not enough Food</h2><p>Recruiting costs 1 Food.</p>");
   ui.mode = { kind: "recruit" }; ui.sel = null; render();
 }
 function promote(u, cls) {
+  if (!owns(u.f) || !myTurn()) return toast("You can only promote your own units, on your turn.");
   const p = S.players[pIndex(u.f)], food = econFor("PromoteFood", u.f), money = econFor("PromoteMoney", u.f);
   if (p.food < food || p.money < money) return msg(`<h2>Can't afford it</h2><p>Promoting costs ${food} Food + ${money} Money.</p>`);
   act("promote", () => { p.food -= food; p.money -= money; u.cls = cls; u.dmg = 0; log(`${FAC[u.f].title} promotes a Soldier to ${cls} (-${food} Food, -${money} Money).`); });
@@ -453,6 +627,7 @@ function eliminate(p, by) {
 
 // Play a card from the hand (Universal) or the faction row.
 function playCard(p, ref, fromHand) {
+  if (!owns(p.f)) return toast("Those aren't your cards.");
   const d = cardDef(ref), F = FAC[p.f];
   if (p.money < d.cost) return msg(`<h2>Not enough Money</h2><p>${esc(d.name)} costs ${d.cost} Money.</p>`);
   const attach = d.type === "Battle" || d.type === "Setup" || /^Attach/.test(d.text);
@@ -485,7 +660,7 @@ function attachTo(u) {
     ui.mode = null; ui.cardSel = null;
   });
 }
-function discardFromHand(p, u) { act("discard", () => { p.hand.splice(p.hand.indexOf(u), 1); S.discard.push(u); log(`${FAC[p.f].title} discards ${DATA.cards[u].name}.`); ui.cardSel = null; }); }
+function discardFromHand(p, u) { if (!owns(p.f)) return toast("Those aren't your cards."); act("discard", () => { p.hand.splice(p.hand.indexOf(u), 1); S.discard.push(u); log(`${FAC[p.f].title} discards ${DATA.cards[u].name}.`); ui.cardSel = null; }); }
 
 // ---------- battle ----------
 function targetsFor(u) {
@@ -563,7 +738,10 @@ function renderStatus() {
   const ph = { building: "Building phase", action: "Action phase" }[S.phase] || S.phase;
   $("status").innerHTML = `Round ${S.round} &middot; ${ph} &middot; turn: <span class="who" style="background:${F.color};color:${F.ink}">${esc(F.title)}</span>`;
   $("btnEnd").textContent = S.phase === "action" && nextAlive(S.turn + 1) < 0 ? "End round" : "End turn";
-  $("btnUndo").disabled = !undoStack.length;
+  $("btnUndo").disabled = !undoStack.length || !isHost();
+  $("btnEnd").disabled = online() && !myTurn() && !isHost();
+  $("netInfo").textContent = online() ? `Online room ${net.code} · ${net.role === "host" ? "you are the host" : "connected"}${net.seat ? " · you play " + FAC[net.seat].title : " · watching"}` : "";
+  $("chat").style.display = online() ? "flex" : "none";
 }
 function px(n) { return n + "px"; }
 function renderBoard() {
@@ -574,7 +752,7 @@ function renderBoard() {
   const selU = ui.sel && ui.sel.unit ? S.units.find(u => u.id === ui.sel.unit) : null;
   if (ui.mode && ui.mode.kind === "recruit") for (const q of recruitCells(P(ui.view))) add("hl place", q[0], q[1], 1, 1);
   if (ui.mode && ui.mode.kind === "attach") for (const u of S.units.filter(u => u.f === S.players[ui.mode.p].f)) add("hl place", u.r, u.c, 1, 1);
-  if (selU && !ui.mode) {
+  if (selU && !ui.mode && owns(selU.f)) {
     if (S.phase === "building" && !canMoveNow(selU)) for (const k of reachable(selU)) add("hl move", Math.floor(k / N), k % N, 1, 1);
     for (const t of targetsFor(selU)) add("hl target", t.r, t.c, 1, 1);
   }
@@ -600,7 +778,7 @@ function renderBoard() {
 }
 function renderPlayers() {
   $("players").innerHTML = S.players.map((p, i) => { const F = FAC[p.f];
-    return `<span class="ptab${i === ui.view ? " viewing" : ""}${i === S.turn ? " turn" : ""}${p.out ? " out" : ""}" style="background:${F.color};color:${F.ink}" onclick="ui.view=${i};ui.showHand=false;ui.cardSel=null;render()">${F.order}. ${esc(F.title)} &middot; ${p.food}F ${p.money}M &middot; ${p.hand.length} cards</span>`; }).join("")
+    return `<span class="ptab${i === ui.view ? " viewing" : ""}${i === S.turn ? " turn" : ""}${p.out ? " out" : ""}" style="background:${F.color};color:${F.ink}" onclick="ui.view=${i};ui.showHand=false;ui.cardSel=null;render()">${F.order}. ${esc(F.title)}${p.name ? " (" + esc(p.name) + (online() && p.f === net.seat ? ", you" : "") + ")" : ""} &middot; ${p.food}F ${p.money}M &middot; ${p.hand.length} cards</span>`; }).join("")
     + `<span class="hint" style="align-self:center">Click a player to see their board (for Reactions or fixing numbers).</span>`;
 }
 function renderPlayerBox() {
@@ -611,13 +789,13 @@ function renderPlayerBox() {
     <div class="res">
       <span class="r">Food <button class="small" onclick="adj(${i},'food',-1)">-</button><span class="v">${p.food}</span><button class="small" onclick="adj(${i},'food',1)">+</button></span>
       <span class="r">Money <button class="small" onclick="adj(${i},'money',-1)">-</button><span class="v">${p.money}</span><button class="small" onclick="adj(${i},'money',1)">+</button></span>
-      ${mine && S.phase === "building" ? `<button onclick="startRecruit()">Recruit Soldier (1 Food)</button>` : ""}
+      ${mine && owns(p.f) && S.phase === "building" ? `<button onclick="startRecruit()">Recruit Soldier (1 Food)</button>` : ""}
       ${mine && S.phase === "building" && p.f === "air" ? "" : ""}
     </div>`;
   // hand
   h += `<div class="row" style="justify-content:space-between;margin-top:4px"><b>Hand (${p.hand.length}/${handLimit(p.f)})</b>
     <button class="small" onclick="ui.showHand=!ui.showHand;ui.cardSel=null;render()">${ui.showHand ? "Hide hand" : "Show hand"}</button></div>`;
-  if (ui.showHand) {
+  if (ui.showHand && owns(p.f)) {
     h += `<div class="cards" style="margin-top:4px">${p.hand.map((u, k) => `<div class="card${ui.cardSel && ui.cardSel.hand === k ? " sel" : ""}" style="${cardStyle({ u }, 96)}" data-zoom='${JSON.stringify({ u })}' onclick="ui.cardSel={hand:${k}};render()"></div>`).join("") || `<span class="muted">No cards.</span>`}</div>`;
     if (ui.cardSel && ui.cardSel.hand !== undefined && p.hand[ui.cardSel.hand] !== undefined) {
       const u = p.hand[ui.cardSel.hand], d = DATA.cards[u];
@@ -625,7 +803,7 @@ function renderPlayerBox() {
         <button class="primary small" onclick="playCard(P(${i}),{u:${u}},true)">Play</button><button class="small" onclick="discardFromHand(P(${i}),${u})">Discard</button></div>
         <div class="hint">${esc(d.text)}${d.emp ? `<br>Empowered (while you hold the Heart): ${esc(d.emp)}` : ""}</div>`;
     }
-  } else h += `<div class="hint">Hidden. ${mine ? "Only you should look: press Show hand." : ""}</div>`;
+  } else h += `<div class="hint">${online() && !owns(p.f) ? "Only " + esc(p.name || F.title) + " can see this hand." : "Hidden. " + (mine ? "Only you should look: press Show hand." : "")}</div>`;
   // faction cards
   h += `<div style="margin-top:8px"><b>Faction cards</b> <span class="hint">reusable: pay each use, once per turn. Engines/Projects stay once played.</span></div>
     <div class="cards" style="margin-top:4px">${F.cards.map((c, k) => { const ref = { f: p.f, i: k };
@@ -649,11 +827,11 @@ function renderSel() {
   let h = "";
   const u = ui.sel && ui.sel.unit ? S.units.find(x => x.id === ui.sel.unit) : null;
   if (u) {
-    const F = FAC[u.f], st = unitStats(u), mineTurn = cur().f === u.f;
+    const F = FAC[u.f], st = unitStats(u), mineTurn = cur().f === u.f && owns(u.f);
     h += `<h3><span style="color:${F.color}">${esc(F.title)}</span> ${u.cls}${u.mw ? " (Masterwork +2 " + u.mw + ")" : ""}</h3>
       <div>${statLine(st)} &middot; <b>HP ${hpLeft(u)}/${st.HP}</b></div>
       <div class="row" style="margin-top:4px">Damage <button class="small" onclick="dmgUnit(${u.id},-1)">-</button><b>${u.dmg}</b><button class="small" onclick="dmgUnit(${u.id},1)">+</button>
-        <button class="small" onclick="act('remove',()=>removeUnit(S.units.find(x=>x.id===${u.id}),'removed by hand'))">Remove unit</button>
+        <button class="small" onclick="removeUnitUI(${u.id})">Remove unit</button>
         <label class="hint"><input type="checkbox" ${ui.freeMove ? "checked" : ""} onchange="ui.freeMove=this.checked;render()"> Free move (click any empty square)</label></div>`;
     const why = canMoveNow(u);
     if (S.phase === "building") h += `<div class="hint">${why || `Can move up to ${movAllowance(u)} squares: click a yellow square.`}</div>`;
@@ -665,7 +843,7 @@ function renderSel() {
     if (u.f === "steel" && u.cls !== "Soldier" && !u.mw && mineTurn && S.phase === "building")
       h += `<div class="row" style="margin-top:4px"><span class="hint">Masterwork (3 Money): +2 to</span>${["ATK", "DEF", "BAR", "SPD", "MOV", "HP"].map(s => `<button class="small" onclick="masterwork(${u.id},'${s}')">${s}</button>`).join("")}</div>`;
     if (u.cards.length) {
-      const showSecret = mineTurn && ui.showHand;
+      const showSecret = owns(u.f) && ui.showHand;
       h += `<div style="margin-top:6px"><b>Cards under it</b></div><div class="inplay">${u.cards.map((c, k) => `<div class="it"><span class="n">${c.faceUp || showSecret ? esc(cardDef(c).name) + ` <span class="muted">${cardDef(c).type}</span>` : "Face-down Setup card"}${!c.faceUp && showSecret ? " (hidden from others)" : ""}</span>
         ${!c.faceUp ? `<button class="small" onclick="reveal(${u.id},${k})">Reveal</button>` : ""}<button class="small" onclick="dropCard(${u.id},${k})">Discard</button></div>`).join("")}</div>`;
     }
@@ -686,13 +864,14 @@ function statLine(st) { return `ATK ${st.ATK} &middot; DEF ${st.DEF} &middot; BA
 function renderLog() { const l = $("log"); l.innerHTML = S.log.map(e => `<div class="${e.c}">${esc(e.m)}</div>`).join(""); l.scrollTop = l.scrollHeight; }
 
 // small actions used from the panels
-function adj(i, k, d) { act("adjust", () => { P(i)[k] = Math.max(0, P(i)[k] + d); }); }
-function dmgUnit(id, d) { act("damage", () => { const u = S.units.find(x => x.id === id); u.dmg = Math.max(0, u.dmg + d); if (hpLeft(u) <= 0) removeUnit(u, "destroyed"); }); }
-function markers(i, k, d) { act("markers", () => { const ip = P(i).inplay[k]; ip.markers = Math.max(0, (ip.markers || 0) + d); }); }
-function removeInplay(i, k) { act("remove", () => { const ip = P(i).inplay.splice(k, 1)[0]; if (ip.u !== undefined) S.discard.push(ip.u); log(`${FAC[P(i).f].title} removes ${cardDef(ip).name} from play.`); }); }
-function reveal(id, k) { act("reveal", () => { const u = S.units.find(x => x.id === id), c = u.cards[k]; c.faceUp = true; log(`${FAC[u.f].title} reveals ${cardDef(c).name}: ${cardDef(c).text}`); }); }
-function dropCard(id, k) { act("drop", () => { const u = S.units.find(x => x.id === id), c = u.cards.splice(k, 1)[0]; if (c.u !== undefined) S.discard.push(c.u); log(`${FAC[u.f].title} discards ${c.faceUp ? cardDef(c).name : "a Setup card"} from a ${u.cls}.`); }); }
-function masterwork(id, s) { const u = S.units.find(x => x.id === id), p = S.players[pIndex(u.f)]; if (p.money < 3) return msg("<h2>Not enough Money</h2><p>Masterwork costs 3 Money.</p>"); act("masterwork", () => { p.money -= 3; u.mw = s; log(`Blacksmiths give a ${u.cls} a Masterwork marker: +2 ${s}.`); }); }
+function adj(i, k, d) { if (!owns(P(i).f) && !isHost()) return toast("You can only change your own Food and Money."); act("adjust", () => { P(i)[k] = Math.max(0, P(i)[k] + d); }); }
+function removeUnitUI(id) { const u = S.units.find(x => x.id === id); if (!owns(u.f) && !isHost()) return toast("Only its owner (or the host) can remove that unit."); act("remove", () => removeUnit(u, "removed by hand")); }
+function dmgUnit(id, d) { const uu = S.units.find(x => x.id === id); if (!owns(uu.f) && !isHost()) return toast("Only that unit's owner (or the host) can change its damage."); act("damage", () => { const u = S.units.find(x => x.id === id); u.dmg = Math.max(0, u.dmg + d); if (hpLeft(u) <= 0) removeUnit(u, "destroyed"); }); }
+function markers(i, k, d) { if (!owns(P(i).f) && !isHost()) return toast("Only that player (or the host) can do that."); act("markers", () => { const ip = P(i).inplay[k]; ip.markers = Math.max(0, (ip.markers || 0) + d); }); }
+function removeInplay(i, k) { if (!owns(P(i).f) && !isHost()) return toast("Only that player (or the host) can do that."); act("remove", () => { const ip = P(i).inplay.splice(k, 1)[0]; if (ip.u !== undefined) S.discard.push(ip.u); log(`${FAC[P(i).f].title} removes ${cardDef(ip).name} from play.`); }); }
+function reveal(id, k) { if (!owns(S.units.find(x => x.id === id).f)) return toast("Only its owner can reveal it."); act("reveal", () => { const u = S.units.find(x => x.id === id), c = u.cards[k]; c.faceUp = true; log(`${FAC[u.f].title} reveals ${cardDef(c).name}: ${cardDef(c).text}`); }); }
+function dropCard(id, k) { const ou = S.units.find(x => x.id === id); if (!owns(ou.f) && !isHost()) return toast("Only its owner (or the host) can do that."); act("drop", () => { const u = S.units.find(x => x.id === id), c = u.cards.splice(k, 1)[0]; if (c.u !== undefined) S.discard.push(c.u); log(`${FAC[u.f].title} discards ${c.faceUp ? cardDef(c).name : "a Setup card"} from a ${u.cls}.`); }); }
+function masterwork(id, s) { const u = S.units.find(x => x.id === id), p = S.players[pIndex(u.f)]; if (!owns(u.f)) return; if (p.money < 3) return msg("<h2>Not enough Money</h2><p>Masterwork costs 3 Money.</p>"); act("masterwork", () => { p.money -= 3; u.mw = s; log(`Blacksmiths give a ${u.cls} a Masterwork marker: +2 ${s}.`); }); }
 
 // ---------- board clicks & hover ----------
 function cellFromEvent(e) { const b = $("board").getBoundingClientRect(); const c = Math.floor((e.clientX - b.left) / cell), r = Math.floor((e.clientY - b.top) / cell); return (r >= 0 && r < N && c >= 0 && c < N) ? [r, c] : null; }
@@ -701,17 +880,18 @@ function onBoardClick(e) {
   const [r, c] = rc, u = unitAt(r, c), camp = campAt(r, c);
   if (ui.mode && ui.mode.kind === "recruit") {
     const p = P(ui.view);
-    if (recruitCells(p).some(q => q[0] === r && q[1] === c)) act("recruit", () => { p.food -= 1; S.units.push({ id: S.nextId++, f: p.f, cls: "Soldier", r, c, dmg: 0, cards: [], recruited: S.round }); log(`${FAC[p.f].title} recruits a Soldier (-1 Food).`); ui.mode = null; });
+    if (owns(p.f) && recruitCells(p).some(q => q[0] === r && q[1] === c)) act("recruit", () => { p.food -= 1; S.units.push({ id: S.nextId++, f: p.f, cls: "Soldier", r, c, dmg: 0, cards: [], recruited: S.round }); log(`${FAC[p.f].title} recruits a Soldier (-1 Food).`); ui.mode = null; });
     return;
   }
   if (ui.mode && ui.mode.kind === "attach") { if (u) attachTo(u); return; }
   const selU = ui.sel && ui.sel.unit ? S.units.find(x => x.id === ui.sel.unit) : null;
+  const ctl = selU && owns(selU.f) && myTurn();
   if (selU) {
-    if (S.phase === "building" && !canMoveNow(selU) && reachable(selU).has(key(r, c)))
+    if (ctl && S.phase === "building" && !canMoveNow(selU) && reachable(selU).has(key(r, c)))
       return act("move", () => { log(`${FAC[selU.f].title} ${selU.cls} moves.`); selU.r = r; selU.c = c; selU.moved = S.round; });
     const tg = targetsFor(selU).find(t => t.r === r && t.c === c);
-    if (tg && (!u || u.f !== selU.f)) return openBattle(selU, tg);
-    if (ui.freeMove && !u && !isCampSquare(r, c)) return act("free move", () => { log(`${FAC[selU.f].title} ${selU.cls} is moved by hand.`); selU.r = r; selU.c = c; });
+    if (ctl && tg && (!u || u.f !== selU.f)) return openBattle(selU, tg);
+    if (ui.freeMove && (owns(selU.f) || isHost()) && !u && !isCampSquare(r, c)) return act("free move", () => { log(`${FAC[selU.f].title} ${selU.cls} is moved by hand.`); selU.r = r; selU.c = c; });
   }
   ui.sel = u ? { unit: u.id } : camp ? { camp: camp.f } : null;
   render();
@@ -767,17 +947,17 @@ function showRef(which) {
 }
 
 // ---------- top bar ----------
-$("btnEnd").onclick = () => S && S.phase !== "setup" && endTurn();
-$("btnUndo").onclick = () => { if (!undoStack.length) return; S = JSON.parse(undoStack.pop()); ui.mode = null; ui.cardSel = null; save(); render(); };
-$("btnNew").onclick = () => openSetup();
-$("btnCancelSetup").onclick = () => { if (S && S.phase !== "setup") $("setupModal").classList.remove("open"); };
+$("btnEnd").onclick = () => { if (!S || S.phase === "setup") return; if (!myTurn() && !isHost()) return toast("It isn't your turn."); endTurn(); };
+$("btnUndo").onclick = () => { if (!isHost()) return toast("Only the host can undo."); if (!undoStack.length) return; const v = S.ver || 0; S = JSON.parse(undoStack.pop()); S.ver = v + 1; ui.mode = null; ui.cardSel = null; save(); render(); netPush(v); };
+$("btnNew").onclick = () => { if (net.role === "client") return toast("Only the host can start a new game."); if (net.role === "host") return showLobby(); openStart(""); };
+$("btnCancelSetup").onclick = () => { $("setupModal").classList.remove("open"); if (!S) openStart(""); };
 $("btnStart").onclick = startGame;
 $("nPlayers").onchange = openSetup;
 $("btnRef").onclick = () => showRef("reference");
 $("btnDice").onclick = () => { const a = d6(), b = d6(); act("dice", () => log(`Dice: ${a} and ${b} (total ${a + b}).`)); };
 $("btnSave").onclick = () => { const blob = new Blob([JSON.stringify(S)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `elemental-war-round${S.round}.json`; a.click(); };
-$("btnLoad").onclick = () => $("fileIn").click();
-$("fileIn").onchange = e => { const f = e.target.files[0]; if (!f) return; f.text().then(t => { try { snapshot(); S = JSON.parse(t); ui = { view: S.turn, sel: null, mode: null, cardSel: null, showHand: false, freeMove: false }; save(); render(); } catch (err) { alert("That file isn't an Elemental War save."); } }); e.target.value = ""; };
+$("btnLoad").onclick = () => isHost() ? $("fileIn").click() : toast("Only the host can load a saved game.");
+$("fileIn").onchange = e => { const f = e.target.files[0]; if (!f) return; f.text().then(t => { try { snapshot(); S = JSON.parse(t); ui = { view: S.turn, sel: null, mode: null, cardSel: null, showHand: false, freeMove: false }; if (online()) { if (!S.online) S.online = { code: net.code, seats: {} }; S.online.code = net.code; net.seat = seatOf(net.name); } S.ver = (S.ver || 0) + 1000; save(); render(); netPush(0); } catch (err) { alert("That file isn't an Elemental War save."); } }); e.target.value = ""; };
 $("board").addEventListener("click", onBoardClick);
 $("board").addEventListener("mousemove", onBoardMove);
 $("board").addEventListener("mouseleave", () => $("tip").style.display = "none");
@@ -785,9 +965,49 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { ui.mode = 
 window.addEventListener("resize", () => { layout(); render(); });
 
 // ---------- boot ----------
+// ---------- start screen ----------
+function sendChat() { const t = $("chatIn").value.trim(); if (!t || !S) return; $("chatIn").value = ""; act("chat", () => log(`${net.name}: ${t}`, "chat")); }
+$("btnChat").onclick = sendChat;
+$("chatIn").addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+function openStart(code) {
+  $("joinCode").value = code || ""; $("startMsg").textContent = "";
+  let info = null, onl = null;
+  try { info = JSON.parse(localStorage.getItem("elementalwar.netinfo")); onl = JSON.parse(localStorage.getItem("elementalwar.online")); } catch (e) {}
+  $("resumeRow").innerHTML = info && info.role === "host" && onl && onl.online && onl.phase !== "setup" && !net.role
+    ? `<button onclick="resumeHost()">Resume hosting room ${esc(info.code)} (round ${onl.round})</button>` : "";
+  if (typeof Peer === "undefined") $("startMsg").textContent = "Online play needs an internet connection (the connection library didn't load). You can still play on this computer.";
+  $("startModal").classList.add("open");
+}
+function needName() {
+  const n = $("myName").value.trim();
+  if (!n) { $("startMsg").textContent = "Type your name first."; $("myName").focus(); return null; }
+  net.name = n; try { localStorage.setItem("elementalwar.name", n); } catch (e) {}
+  return n;
+}
+$("chLocal").onclick = () => { $("startModal").classList.remove("open"); openSetup(); };
+$("chHost").onclick = () => { if (!needName() || typeof Peer === "undefined" || net.role) return; hostGame(null, false); };
+$("chJoin").onclick = () => {
+  if (!needName() || typeof Peer === "undefined" || net.role) return;
+  const c = $("joinCode").value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{5}$/.test(c)) { $("startMsg").textContent = "Type the 5-character room code."; return; }
+  joinGame(c);
+};
+function resumeHost() {
+  if (!needName()) return;
+  const info = JSON.parse(localStorage.getItem("elementalwar.netinfo"));
+  S = JSON.parse(localStorage.getItem("elementalwar.online"));
+  hostGame(info.code, true);
+}
+
+// ---------- boot ----------
 layout();
-try { const s = localStorage.getItem("elementalwar.save"); if (s) S = JSON.parse(s); } catch (e) { S = null; }
-if (S && S.phase !== "setup") { ui.view = S.turn; render(); } else { S = null; openSetup(); }
+try { $("myName").value = net.name = localStorage.getItem("elementalwar.name") || ""; } catch (e) {}
+(() => {
+  const m = /join=([A-Za-z0-9]{5})/.exec(location.hash);
+  let local = null; try { local = JSON.parse(localStorage.getItem("elementalwar.save")); } catch (e) {}
+  if (!m && local && local.phase !== "setup") { S = local; ui.view = S.turn; render(); return; }
+  openStart(m ? m[1].toUpperCase() : "");
+})();
 </script>
 </body>
 </html>
