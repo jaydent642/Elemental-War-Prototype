@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elemental War</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Sorts+Mill+Goudy&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #e9e2d0; --panel: #f6f1e4; --ink: #222; --muted: #6b6455; --line: #cfc5ad;
+  --accent: #8a3b12; --good: #2b8a3e; --bad: #c92a2a; --sel: #ffd43b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.35 system-ui, "Segoe UI", Arial, sans-serif; }
+h1, h2, h3, .title { font-family: "Russo One", system-ui, sans-serif; font-weight: normal; margin: 0; }
+button { font: inherit; cursor: pointer; border: 1px solid #9c9178; background: #fffaf0; border-radius: 6px; padding: 4px 9px; }
+button:hover:not(:disabled) { background: #fff3cf; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary:hover:not(:disabled) { background: #a8491a; }
+button.small { padding: 1px 6px; font-size: 12px; }
+select, input { font: inherit; padding: 3px 5px; border: 1px solid #9c9178; border-radius: 5px; background: #fff; }
+
+#topbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #2b2a26; color: #f6f1e4; flex-wrap: wrap; }
+#topbar .title { font-size: 20px; letter-spacing: .5px; margin-right: 8px; }
+#status { font-weight: 600; }
+#status .who { display: inline-block; padding: 1px 8px; border-radius: 10px; margin-left: 4px; }
+#topbar .spacer { flex: 1; }
+#topbar button { background: #3d3b35; color: #f6f1e4; border-color: #5a574e; }
+#topbar button:hover:not(:disabled) { background: #4e4b43; }
+#topbar button.primary { background: var(--accent); border-color: #c4602a; }
+
+#main { display: flex; gap: 12px; padding: 12px; align-items: flex-start; }
+#boardWrap { position: relative; flex: none; }
+#board { position: relative; background-size: cover; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,.35); user-select: none; }
+.piece { position: absolute; pointer-events: none; transition: left .15s, top .15s; }
+.unit img, .camp img, .tok img { width: 100%; height: 100%; display: block; }
+.unit { border-radius: 50%; }
+.unit.sel, .camp.sel { box-shadow: 0 0 0 3px var(--sel), 0 0 12px var(--sel); border-radius: 50%; }
+.camp.sel { border-radius: 6px; }
+.hp { position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%); background: rgba(0,0,0,.78); color: #fff; font-size: 10px; padding: 0 4px; border-radius: 6px; white-space: nowrap; font-weight: 700; }
+.hp.hurt { background: var(--bad); }
+.badge { position: absolute; top: -3px; right: -3px; background: #1971c2; color: #fff; font-size: 9px; border-radius: 6px; padding: 0 3px; font-weight: 700; }
+.done { position: absolute; top: -3px; left: -3px; background: #555; color: #fff; font-size: 9px; border-radius: 6px; padding: 0 3px; }
+.hl { position: absolute; pointer-events: none; border-radius: 3px; }
+.hl.move { background: rgba(255, 212, 59, .38); box-shadow: inset 0 0 0 2px rgba(255,190,0,.9); }
+.hl.target { background: rgba(201, 42, 42, .30); box-shadow: inset 0 0 0 3px rgba(201,42,42,.95); }
+.hl.place { background: rgba(43, 138, 62, .35); box-shadow: inset 0 0 0 2px rgba(43,138,62,.95); }
+#tip { position: fixed; z-index: 50; pointer-events: none; background: #fffdf6; border: 1px solid #9c9178; border-radius: 8px; padding: 8px 10px; max-width: 320px; box-shadow: 0 4px 14px rgba(0,0,0,.25); display: none; font-size: 13px; }
+#tip b { font-family: "Russo One", sans-serif; font-weight: normal; }
+#tip .stats { font-variant-numeric: tabular-nums; margin: 3px 0; }
+#tip .note { color: var(--muted); font-size: 12px; }
+
+#side { flex: 1; min-width: 360px; display: flex; flex-direction: column; gap: 10px; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.box h3 { font-size: 15px; margin-bottom: 6px; }
+.players { display: flex; flex-wrap: wrap; gap: 6px; }
+.ptab { border-radius: 7px; padding: 4px 8px; border: 2px solid transparent; cursor: pointer; font-size: 13px; }
+.ptab.viewing { border-color: #222; }
+.ptab.turn::after { content: " \25C0"; }
+.ptab.out { opacity: .4; text-decoration: line-through; }
+.res { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.res .r { display: flex; align-items: center; gap: 4px; }
+.res .v { font-family: "Russo One", sans-serif; font-size: 20px; min-width: 26px; text-align: center; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.cards { display: flex; gap: 6px; flex-wrap: wrap; }
+.card { position: relative; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: pointer; background-repeat: no-repeat; flex: none; }
+.card.sel { outline: 3px solid var(--sel); }
+.card.used { filter: grayscale(.8) brightness(.8); }
+.card .tag { position: absolute; left: 2px; bottom: 2px; background: rgba(0,0,0,.75); color: #fff; font-size: 10px; border-radius: 4px; padding: 0 3px; }
+.cardback { background: #1b2a41; border: 2px solid #f5c518; }
+.inplay { display: flex; flex-direction: column; gap: 3px; }
+.inplay .it { display: flex; gap: 6px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; font-size: 13px; }
+.inplay .it .n { flex: 1; }
+.muted { color: var(--muted); }
+.hint { font-size: 12px; color: var(--muted); }
+#log { height: 190px; overflow-y: auto; font-size: 12.5px; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+#log div { padding: 1px 0; border-bottom: 1px dotted #e6dfcc; }
+#log .sys { color: var(--accent); font-weight: 600; }
+#zoom { position: fixed; z-index: 60; pointer-events: none; display: none; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.45); background-repeat: no-repeat; }
+
+.modal { position: fixed; inset: 0; background: rgba(20,18,14,.55); display: none; align-items: center; justify-content: center; z-index: 40; padding: 16px; }
+.modal.open { display: flex; }
+.modal .win { background: var(--panel); border-radius: 10px; padding: 16px; max-width: 980px; width: 100%; max-height: 92vh; overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+.modal .win h2 { font-size: 20px; margin-bottom: 10px; }
+.seat { display: grid; grid-template-columns: 90px 1fr 1fr; gap: 8px; align-items: center; margin: 6px 0; }
+.battle { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.battle .side { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.battle table { border-collapse: collapse; font-size: 13px; }
+.battle td { padding: 1px 6px 1px 0; }
+.result { margin-top: 10px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; white-space: pre-wrap; font-size: 13px; }
+.refimg { width: 100%; height: auto; border-radius: 6px; }
+@media (max-width: 1100px) { #main { flex-direction: column; } #side { min-width: 0; width: 100%; } }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="title">ELEMENTAL WAR</span>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <button id="btnDice">Roll dice</button>
+  <button id="btnRef">Rules sheets</button>
+  <button id="btnUndo">Undo</button>
+  <button id="btnSave">Save file</button>
+  <button id="btnLoad">Load file</button>
+  <button id="btnNew">New game</button>
+  <button id="btnEnd" class="primary">End turn</button>
+</div>
+<div id="main">
+  <div id="boardWrap"><div id="board"></div></div>
+  <div id="side">
+    <div class="box"><div class="players" id="players"></div></div>
+    <div class="box" id="playerBox"></div>
+    <div class="box" id="selBox"></div>
+    <div class="box"><h3>Log</h3><div id="log"></div></div>
+  </div>
+</div>
+<div id="tip"></div>
+<div id="zoom"></div>
+<input type="file" id="fileIn" accept=".json" style="display:none">
+
+<div class="modal" id="setupModal"><div class="win" style="max-width:620px">
+  <h2>New game</h2>
+  <p class="hint">Pick 2 to 4 players. Each player chooses a faction and a corner of the board. Turn order always follows the faction order (Conquerors first, Paladins last).</p>
+  <div class="row"><label>Players <select id="nPlayers"><option>2</option><option>3</option><option selected>4</option></select></label>
+  <label style="margin-left:14px"><input type="checkbox" id="optAuto" checked> Auto income &amp; upkeep</label></div>
+  <div id="seats" style="margin-top:8px"></div>
+  <div class="row" style="margin-top:12px; justify-content:flex-end"><button id="btnCancelSetup">Cancel</button><button id="btnStart" class="primary">Start game</button></div>
+</div></div>
+
+<div class="modal" id="battleModal"><div class="win" style="max-width:760px"><div id="battleBody"></div></div></div>
+<div class="modal" id="refModal"><div class="win"><div class="row" id="refTabs" style="margin-bottom:8px"></div><div id="refBody"></div>
+  <div class="row" style="justify-content:flex-end;margin-top:8px"><button onclick="closeModal('refModal')">Close</button></div></div></div>
+<div class="modal" id="msgModal"><div class="win" style="max-width:520px"><div id="msgBody"></div>
+  <div class="row" style="justify-content:flex-end;margin-top:12px" id="msgBtns"></div></div></div>
+
+<script>
+"use strict";
+const DATA = {"assetBase":"assets/","classOrder":["Soldier","Juggernaut","Knight","Artillery","Mage","Monk","Duelist","Impaler","Archer","Scout"],"classes":{"Soldier":{"family":"Base","type":"P","HP":10,"ATK":4,"DEF":2,"BAR":2,"SPD":4,"MOV":3,"RNG":1,"LCK":0,"ability":"Starting unit. Promotes into any class. Each faction changes its stats."},"Juggernaut":{"family":"Armor","type":"P","HP":14,"ATK":9,"DEF":7,"BAR":1,"SPD":1,"MOV":2,"RNG":1,"LCK":0,"ability":"Enemy units next to it at the start of a phase get -1 MOV that phase."},"Knight":{"family":"Armor","type":"P","HP":12,"ATK":4,"DEF":5,"BAR":5,"SPD":2,"MOV":3,"RNG":1,"LCK":0,"ability":"Guard: allied units next to it get +1 DEF."},"Artillery":{"family":"Magic","type":"M","HP":8,"ATK":5,"DEF":1,"BAR":1,"SPD":2,"MOV":2,"RNG":4,"LCK":0,"ability":"No ability."},"Mage":{"family":"Magic","type":"M","HP":9,"ATK":7,"DEF":1,"BAR":5,"SPD":5,"MOV":3,"RNG":2,"LCK":0,"ability":"No ability."},"Monk":{"family":"Magic","type":"M","HP":9,"ATK":2,"DEF":4,"BAR":4,"SPD":6,"MOV":4,"RNG":1,"LCK":0,"ability":"After each battle it fights, it heals 1 damage."},"Duelist":{"family":"Infantry","type":"P","HP":9,"ATK":3,"DEF":1,"BAR":1,"SPD":8,"MOV":3,"RNG":1,"LCK":1,"ability":"+1 LCK (dodges on 11+)."},"Impaler":{"family":"Infantry","type":"P","HP":10,"ATK":6,"DEF":1,"BAR":5,"SPD":2,"MOV":3,"RNG":2,"LCK":0,"ability":"+2 ATK against Armor units (Juggernaut, Knight)."},"Archer":{"family":"Infantry","type":"P","HP":9,"ATK":5,"DEF":1,"BAR":1,"SPD":4,"MOV":2,"RNG":3,"LCK":0,"ability":"+1 ATK against Magic units (Artillery, Mage, Monk)."},"Scout":{"family":"Cavalry","type":"P","HP":11,"ATK":2,"DEF":3,"BAR":3,"SPD":5,"MOV":5,"RNG":1,"LCK":0,"ability":"No ability."}},"econ":{"StartFood":4,"StartMoney":3,"FoodIncome":2,"MoneyIncome":3,"MoneyIncomeFor":{"steel":2},"PromoteFood":2,"PromoteMoney":3,"PromoteFoodFor":{"fire":3},"PromoteMoneyFor":{"steel":2},"OutpostFood":1,"TownMoney":2,"Upkeep":1,"StartUnits":2,"Recruit":"1 Food","Promote":"2 Food + 3 Money","Wall":"2 Money","Tower":"4 Money","HandLimit":6,"MaxUnits":10,"HandLimitFor":{"water":5}},"factions":[{"key":"fire","title":"Conquerors","order":1,"color":"#d9480f","ink":"#ffffff","campHP":25,"soldier":"ATK +1, DEF -1","rules":[["Blaze","After one of your units destroys an enemy, it may move 1 square."],["Eager Recruits","Soldiers you recruit may move in the same Building turn."],["Weakness: Reckless","Camp HP 25. Your Soldiers have DEF -1. Promotions cost +1 Food."],["Affinity: Juggernaut","+1 ATK when it is the attacker."],["Affinity: Duelist","+2 LCK (with its own +1: dodges on 9+)."]],"cards":[{"name":"Plunder","type":"Engine","cost":4,"text":"When your unit destroys an enemy unit or structure, gain 2 Food."},{"name":"War Kitchens","type":"Engine","cost":4,"text":"Income: +1 Food for each objective you took from another player last round."},{"name":"Blood Rally","type":"Action","cost":2,"text":"This round, your units get +2 ATK when they attack."},{"name":"Scorched Earth","type":"Reaction","cost":4,"text":"When you claim an objective from another player: they discard one of their Engines (you choose)."},{"name":"Burning Hunger","type":"Engine","cost":3,"text":"Income: lose 1 Food if none of your units attacked last Action turn. Blood Rally costs 0 for you."},{"name":"Field Kitchens","type":"Engine","cost":3,"text":"Income: +1 Food."}]},{"key":"air","title":"Nomads","order":2,"color":"#3bc9db","ink":"#0b3d4a","campHP":25,"soldier":"MOV +1, SPD +2, HP -2","rules":[["Tailwind","Your units ignore rivers, and may move through (not end on) any unit. They may fly over Shield Wall end squares, but not through the wall units."],["Hit \u0026 Run","After one of your units finishes a battle and survives, it may move 1 square."],["Weakness: Fragile","Camp HP 25. Your units never get terrain DEF/BAR bonuses."],["Affinity: Scout","+1 MOV."],["Affinity: Monk","+2 SPD."]],"cards":[{"name":"Gust","type":"Action","cost":1,"text":"This Building turn, all your units get +1 MOV."},{"name":"Updraft","type":"Action","cost":3,"text":"Move one of your units to any empty square next to an objective you control, ignoring everything in between."},{"name":"Scout Flight","type":"Action","cost":1,"text":"Look at one player\u0027s hand, or at every face-down Setup card under their units."},{"name":"Gale Force","type":"Action","cost":3,"text":"Push an enemy unit within 3 squares of your unit 1 square away from it (into an empty square)."},{"name":"Migratory Camp","type":"Engine","cost":4,"text":"When you lose an objective, you still get its Income bonus at your next Building turn."},{"name":"Scavenge","type":"Action","cost":2,"text":"Discard 1 card from your hand to gain 2 Food."}]},{"key":"nature","title":"Tribalists","order":3,"color":"#2f9e44","ink":"#ffffff","campHP":30,"soldier":"HP +2, SPD -1","rules":[["Overgrowth","End of your action turn: place 1 Vine on an empty square next to your unit (max 8). Vines are Forest."],["Rooted Claim","You claim objectives with a unit on OR next to them (no enemy on them)."],["Regrowth","Start of your building turn: each of your units in a Forest or Vine heals 2."],["Weakness","Your units have -2 ATK against Camps and structures."],["Affinity: Archer","+1 RNG while in a Forest or Vine."],["Affinity: Monk","After its battle, heal 2 HP on a friendly unit next to it."]],"cards":[{"name":"Sacred Grove","type":"Engine","cost":5,"text":"Name an objective you control. While you hold it: Income +1 Food, and your units on it get +1 DEF."},{"name":"Ancient Growth","type":"Engine","cost":4,"text":"Income: if you hold your Grove objective, add a marker here; else remove all. +1 Food per 2 markers."},{"name":"Thornwall","type":"Action","cost":4,"text":"Name an objective you control. Until your next turn, the first enemy Soldier to attack a unit on it is destroyed first."},{"name":"Roots Run Deep","type":"Engine","cost":4,"text":"Your units on objectives can\u0027t be moved by enemy cards or abilities."},{"name":"Ambush from the Brush","type":"Reaction","cost":2,"text":"When an enemy unit moves next to your unit in a Forest or Vine, deal 2 damage to it."},{"name":"Spirit of the Land","type":"Engine","cost":7,"text":"Each of your Food/Money Engines makes +1 more for each objective you control (max +2 each)."}]},{"key":"water","title":"Merchants","order":4,"color":"#1c55c2","ink":"#ffffff","campHP":30,"soldier":"No change. All your units LCK +1","rules":[["Hoarding","Income: if you have 5 or more Food, gain 1 extra Food."],["River-born","Rivers don\u0027t stop your movement. Your units in a river get +2 DEF and +2 BAR."],["Weakness: Light Cargo","Your hand limit is 5 instead of 6."],["Retrain","Building phase, 1 Money: change a promoted unit to another class."],["Affinity: Mage","+2 DEF."]],"cards":[{"name":"Currency Exchange","type":"Engine","cost":2,"text":"Once per Building turn: trade 1 Food for 3 Money."},{"name":"Trade Route","type":"Engine","cost":5,"text":"Income: +2 Money. When your unit attacks (not counterattacks), put 2 markers here; remove 1 instead of earning."},{"name":"Bribe","type":"Reaction","cost":5,"text":"When an enemy attacks your unit: cancel the battle. Costs 7 if the attacker is promoted."},{"name":"Compound Interest","type":"Engine","cost":6,"text":"Income: +1 Money for every 5 Money you already have."},{"name":"Hired Blades","type":"Action","cost":4,"text":"Recruit 2 Soldiers for free. Put 3 markers here; remove 1 each Income. When empty, remove them. Can\u0027t be used again while it has markers."},{"name":"Shipping Monopoly","type":"Engine","cost":6,"text":"When another player plays a Farmstead, Market Stall or Trade Caravan, gain 1 Money."}]},{"key":"steel","title":"Blacksmiths","order":5,"color":"#5c677d","ink":"#ffffff","campHP":30,"soldier":"ATK -1, SPD -1","rules":[["Forge Projects","Project cards go in front of you with markers equal to their timer. Remove 1 at each Income; when the last is gone, it is active."],["Forgecraft","Promotions cost 1 less Money."],["Masterwork","Building phase, 3 Money: give a promoted unit a Masterwork marker: +2 to one stat (max 1 per unit)."],["Weakness: Unrefined","Your Income is +2 Money instead of +3."],["Affinity: Knight / Impaler","Knight +1 DEF. Impaler +1 ATK."]],"cards":[{"name":"Apprentice\u0027s Bench","type":"Engine","cost":3,"text":"Income: remove 1 extra marker from one of your Projects."},{"name":"Masterwork Forge","type":"Project","cost":3,"text":"Timer 3. When active: your promotions cost 2 less Money."},{"name":"Tempered Steel","type":"Project","cost":4,"text":"Timer 3. When active: all your units get +1 DEF."},{"name":"Siege Engine","type":"Project","cost":4,"text":"Timer 4. When active, once per Action turn: discard an enemy Engine, or ignore Shield Walls."},{"name":"Hold the Gate","type":"Action","cost":1,"text":"End of your Action turn: your units get +2 DEF until your next turn."},{"name":"Industrial Age","type":"Project","cost":6,"text":"Timer 5. When active: all your Engines produce double."},{"name":"Foundry","type":"Engine","cost":4,"text":"Income: +1 Food and +1 Money."}]},{"key":"earth","title":"Paladins","order":6,"color":"#8b5e34","ink":"#ffffff","campHP":40,"soldier":"DEF +1, BAR +1, MOV -1","rules":[["Shield Wall","3 of your Armor units (Juggernaut/Knight) in a straight row or column: the empty square at each end is blocked to enemies. 1 wall at a time."],["Stoneskin","Camp HP 40. Your units in your Deployment Zone or next to your structures get +2 DEF and +2 BAR."],["Weakness: Slow to Anger","Your units get -1 ATK unless they start the Action Phase next to your structure or Camp."],["Affinity: Knight / Artillery","Knight +2 BAR. Artillery +1 RNG next to your structure."]],"cards":[{"name":"Stone Phalanx","type":"Engine","cost":4,"text":"Your units that did not move in your last Building turn get +2 DEF."},{"name":"Riposte","type":"Action","cost":4,"text":"Choose one of your units. Until your next turn, when it is attacked it counterattacks first, before the attacker strikes."},{"name":"Oath of Retribution","type":"Engine","cost":4,"text":"Name a player who attacked you. Your units get +2 ATK against their units and Camp."},{"name":"Unbroken Line","type":"Engine","cost":4,"text":"Income: if your units or Camp were attacked since your last turn, gain 2 Food and 2 Money."},{"name":"Bastion of Stone","type":"Engine","cost":6,"text":"Enemy ranged attacks can\u0027t target anything behind your Shield Wall. Wall units can still be hit."},{"name":"Breakwater","type":"Action","cost":3,"text":"Move your whole Shield Wall 1 square in a direction you choose. Enemy units in the way are knocked back 1 square. The wall can\u0027t move onto or over a structure."}]}],"unitMods":{"fire":{"Duelist":{"LCK":2},"Soldier":{"DEF":-1,"ATK":1}},"nature":{"Soldier":{"SPD":-1,"HP":2}},"water":{"*":{"LCK":1},"Mage":{"DEF":2}},"air":{"Soldier":{"SPD":2,"MOV":1,"HP":-2},"Scout":{"MOV":1},"Monk":{"SPD":2}},"steel":{"Knight":{"DEF":1},"Soldier":{"SPD":-1,"ATK":-1},"Impaler":{"ATK":1}},"earth":{"Knight":{"BAR":2},"Soldier":{"BAR":1,"MOV":-1,"DEF":1}}},"unitNotes":{"fire":{"Juggernaut":"+1 ATK when it is the attacker.","Soldier":"Can move the turn it is recruited."},"nature":{"*":"-2 ATK against Camps and structures. Heals 2 at the start of your Building turn in a Forest or Vine.","Archer":"+1 RNG while in a Forest or Vine.","Monk":"After its battle, heal 2 HP on a friendly unit next to it."},"water":{"*":"In a river: +2 DEF and +2 BAR, and rivers don\u0027t stop it."},"air":{"*":"Ignores rivers, but never gets terrain DEF/BAR bonuses."},"steel":{},"earth":{"*":"-1 ATK unless it starts the Action Phase next to your structure or Camp. +2 DEF and +2 BAR in your Deployment Zone or next to your structures.","Artillery":"+1 RNG next to your structure."}},"cards":[{"name":"Farmstead","suit":"Economy","type":"Engine","cost":2,"copies":6,"text":"Income: +1 Food. Automatic: keep it in your ENGINES IN PLAY box and the Food is added for you.","emp":""},{"name":"Market Stall","suit":"Economy","type":"Engine","cost":3,"copies":6,"text":"Income: +1 Money. Automatic: keep it in your ENGINES IN PLAY box and the Money is added for you.","emp":""},{"name":"Irrigation","suit":"Economy","type":"Engine","cost":3,"copies":3,"text":"Put on one of your Farmsteads: it makes +2 Food instead of +1.","emp":""},{"name":"Tax Collector","suit":"Economy","type":"Engine","cost":4,"copies":3,"text":"Income: +1 Money for every 2 objectives you control.","emp":""},{"name":"Granary","suit":"Economy","type":"Engine","cost":2,"copies":3,"text":"Income: if you have 4+ Food, gain 1 Money.","emp":""},{"name":"Harvest Festival","suit":"Economy","type":"Action","cost":1,"copies":2,"text":"Gain 1 Food for each of your Engines that makes Food.","emp":""},{"name":"Trade Caravan","suit":"Economy","type":"Engine","cost":2,"copies":3,"text":"Once per Building turn: pay 2 Food to gain 3 Money.","emp":""},{"name":"War Loan","suit":"Economy","type":"Action","cost":0,"copies":2,"text":"Gain 5 Money. Put 3 markers here; each Income, earn 1 less Money and remove 1.","emp":""},{"name":"Tax Levy","suit":"Tactics","type":"Action","cost":1,"copies":3,"text":"Gain 1 Money for each Town you control.","emp":"Gain 2 Money per Town instead."},{"name":"Smithy Blade","suit":"Tactics","type":"Action","cost":2,"copies":3,"text":"Attach to one of your units: +2 ATK.","emp":"+3 ATK instead."},{"name":"Town Armor","suit":"Tactics","type":"Action","cost":2,"copies":3,"text":"Attach to one of your units: +2 DEF or +2 BAR.","emp":"+2 DEF and +2 BAR."},{"name":"Town Healer","suit":"Tactics","type":"Action","cost":1,"copies":3,"text":"Heal 4 HP on one of your units.","emp":"Heal 4 HP on two units."},{"name":"Street Fighting","suit":"Tactics","type":"Battle","cost":1,"copies":4,"text":"+3 ATK this battle.","emp":"+4 ATK instead."},{"name":"Rally the Townsfolk","suit":"Tactics","type":"Battle","cost":1,"copies":3,"text":"If your unit is on or next to a Town: +3 ATK and +2 DEF this battle.","emp":""},{"name":"Hidden Garrison","suit":"Tactics","type":"Setup","cost":2,"copies":3,"text":"Place face-down under your unit. Reveal when it is attacked: the first strike against it deals 0.","emp":"The first two strikes deal 0."},{"name":"Siege Ladders","suit":"Tactics","type":"Action","cost":2,"copies":2,"text":"This round, your units may break capture tokens from up to 2 squares away.","emp":"Also gain 2 Money for each token you break."},{"name":"Quick Capture","suit":"Tactics","type":"Action","cost":3,"copies":2,"text":"Flip one of your CAPTURING tokens (with your unit on it) to CAPTURED now.","emp":""},{"name":"Ambush","suit":"Tactics","type":"Setup","cost":2,"copies":3,"text":"Place face-down under your unit. Reveal when an enemy moves into its range: it strikes that enemy once, right away.","emp":"+2 ATK on that strike."},{"name":"Forced March","suit":"Tactics","type":"Action","cost":1,"copies":3,"text":"Choose one of your units: +2 MOV this Building turn.","emp":"Choose two units."},{"name":"Flank","suit":"Tactics","type":"Battle","cost":1,"copies":3,"text":"If another of your units is next to the defender: +2 ATK and +2 SPD.","emp":"+3 ATK and +3 SPD instead."},{"name":"Hold the Line","suit":"Tactics","type":"Battle","cost":1,"copies":3,"text":"Defender only: +3 DEF and +3 BAR this battle.","emp":"Also counterattack even if out of range."},{"name":"Dug In","suit":"Tactics","type":"Setup","cost":1,"copies":3,"text":"Place face-down under your unit. End of round, if it was not attacked this round: reveal it. Heal 3 HP, and +2 DEF and +2 BAR in its next battle.","emp":"Heal 5 HP instead."},{"name":"Hidden Reserves","suit":"Tactics","type":"Setup","cost":1,"copies":3,"text":"Place face-down under your unit. End of round, if it was not attacked this round: reveal it and gain 3 Money.","emp":"Gain 5 Money instead."},{"name":"Supply Cache","suit":"Tactics","type":"Action","cost":0,"copies":3,"text":"Gain 2 Food or 3 Money.","emp":"Gain 3 Food or 5 Money instead."}],"suits":{"Economy":{"Ink":"#3b2f00","Color":"#f5c518"},"Tactics":{"Ink":"#ffffff","Color":"#2b8a3e"}},"typeColor":{"Action":"#1971c2","Build":"#2b8a3e","Project":"#495057","Reaction":"#d6336c","Setup":"#7048e8","Battle":"#c92a2a","Engine":"#b8860b"},"autoEngines":{"Farmstead":{"food":1,"money":0},"Market Stall":{"food":0,"money":1}},"towns":[[1,7],[7,14],[14,8],[8,1],[4,9],[9,11],[11,6],[6,4]],"outposts":[[4,4],[4,11],[11,11],[11,4]],"map":[["camp","camp","plains","plains","plains","forest","forest","plains","plains","plains","river","hills","hills","plains","camp","camp"],["camp","camp","plains","plains","plains","forest","plains","plains","plains","plains","river","plains","plains","plains","camp","camp"],["plains","plains","plains","plains","plains","forest","forest","plains","plains","forest","forest","plains","plains","plains","plains","plains"],["hills","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains"],["hills","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains"],["river","river","forest","plains","plains","plains","hills","plains","plains","hills","plains","plains","plains","forest","forest","forest"],["plains","plains","forest","plains","plains","hills","plains","river","river","plains","hills","plains","plains","forest","plains","forest"],["plains","plains","plains","plains","plains","plains","river","plains","plains","river","plains","plains","plains","plains","plains","plains"],["plains","plains","plains","plains","plains","plains","river","plains","plains","river","plains","plains","plains","plains","plains","plains"],["forest","plains","forest","plains","plains","hills","plains","river","river","plains","hills","plains","plains","forest","plains","plains"],["forest","forest","forest","plains","plains","plains","hills","plains","plains","hills","plains","plains","plains","forest","river","river"],["plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","hills"],["plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","plains","hills"],["plains","plains","plains","plains","plains","forest","forest","plains","plains","forest","forest","plains","plains","plains","plains","plains"],["camp","camp","plains","plains","plains","river","plains","plains","plains","plains","forest","plains","plains","plains","camp","camp"],["camp","camp","plains","hills","hills","river","plains","plains","plains","forest","forest","plains","plains","plains","camp","camp"]]};
+const A = DATA.assetBase, N = 16, CW = 400, CH = 560;
+const FAC = {}; DATA.factions.forEach(f => FAC[f.key] = f);
+const CORNERS = { NW: { r: 0, c: 0, dr: 1, dc: 1, name: "North-west" }, NE: { r: 0, c: 15, dr: 1, dc: -1, name: "North-east" },
+                  SE: { r: 15, c: 15, dr: -1, dc: -1, name: "South-east" }, SW: { r: 15, c: 0, dr: -1, dc: 1, name: "South-west" } };
+const key = (r, c) => r * N + c;
+const TOWN = new Set(DATA.towns.map(p => key(p[0], p[1]))), OUTPOST = new Set(DATA.outposts.map(p => key(p[0], p[1])));
+const isHeart = (r, c) => r >= 7 && r <= 8 && c >= 7 && c <= 8;
+const terrain = (r, c) => DATA.map[r][c];
+const dist = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);   // no diagonals: a diagonal square counts as 2
+const d6 = () => 1 + Math.floor(Math.random() * 6);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+
+function cornerCell(cor, a, b) { const k = CORNERS[cor]; return [k.r + k.dr * a, k.c + k.dc * b]; }
+function campCells(cor) { return [[0, 0], [0, 1], [1, 0], [1, 1]].map(p => cornerCell(cor, p[0], p[1])); }
+function deployCells(cor) { const out = []; for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) if (a >= 2 || b >= 2) out.push(cornerCell(cor, a, b)); return out; }
+
+// ---------- state ----------
+let S = null;               // the saved game state
+let undoStack = [];
+let ui = { view: null, sel: null, mode: null, cardSel: null, showHand: false, freeMove: false };
+
+function blankState() {
+  return { round: 1, phase: "setup", turn: 0, auto: true, players: [], units: [], tokens: [], deck: [], discard: [], log: [], nextId: 1 };
+}
+function P(i) { return S.players[i]; }
+function cur() { return S.players[S.turn]; }
+function pIndex(fk) { return S.players.findIndex(p => p.f === fk); }
+function alive(p) { return !p.out; }
+function stamp() { return S.round + ":" + S.phase + ":" + S.turn; }
+
+function save() { try { localStorage.setItem("elementalwar.save", JSON.stringify(S)); } catch (e) {} }
+function snapshot() { undoStack.push(JSON.stringify(S)); if (undoStack.length > 40) undoStack.shift(); }
+function act(label, fn) { snapshot(); fn(); save(); render(); }
+function log(msg, cls) { S.log.push({ m: msg, c: cls || "" }); if (S.log.length > 400) S.log.shift(); }
+
+// ---------- stats ----------
+function econFor(name, fk) { const o = DATA.econ[name + "For"]; return (o && o[fk] !== undefined) ? o[fk] : DATA.econ[name]; }
+function baseStats(fk, cls) {
+  const b = DATA.classes[cls], st = { HP: b.HP, ATK: b.ATK, DEF: b.DEF, BAR: b.BAR, SPD: b.SPD, MOV: b.MOV, RNG: b.RNG, LCK: b.LCK };
+  const mods = DATA.unitMods[fk] || {};
+  for (const scope of ["*", cls]) { const m = mods[scope]; if (m) for (const s in m) st[s] += m[s]; }
+  return st;
+}
+function unitStats(u) { const st = baseStats(u.f, u.cls); if (u.mw) st[u.mw] += 2; return st; }
+function unitNotes(fk, cls) { const n = DATA.unitNotes[fk] || {}; return [n["*"], n[cls]].filter(Boolean); }
+function hpLeft(u) { return unitStats(u).HP - u.dmg; }
+function handLimit(fk) { return econFor("HandLimit", fk); }
+
+// ---------- board lookups ----------
+function unitAt(r, c) { return S.units.find(u => u.r === r && u.c === c); }
+function tokenAt(r, c) { return S.tokens.find(t => t.r === r && t.c === c); }
+function campAt(r, c) {
+  for (const p of S.players) if (!p.out && campCells(p.cor).some(q => q[0] === r && q[1] === c)) return p;
+  return null;
+}
+function isCampSquare(r, c) { return terrain(r, c) === "camp"; }
+function heldBy(r, c) {   // player key holding this Outpost (Control marker) or Town (CAPTURED token)
+  const t = tokenAt(r, c); if (!t) return null;
+  if (t.kind === "control" || (t.kind === "capture" && t.captured)) return t.f;
+  return null;
+}
+function heartHolder() {
+  const on = S.units.filter(u => isHeart(u.r, u.c)); const owners = [...new Set(on.map(u => u.f))];
+  return owners.length === 1 ? owners[0] : null;
+}
+function adjacentCells(r, c) { return [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].filter(p => p[0] >= 0 && p[0] < N && p[1] >= 0 && p[1] < N); }
+
+// ---------- movement ----------
+function movAllowance(u) {
+  let m = unitStats(u).MOV;
+  const near = adjacentCells(u.r, u.c).some(q => { const o = unitAt(q[0], q[1]); return o && o.f !== u.f && o.cls === "Juggernaut"; });
+  if (near) m -= 1;    // enemy Juggernaut next to it
+  if (S.players[pIndex(u.f)].gust === S.round) m += 1;
+  return Math.max(0, m);
+}
+function canMoveNow(u) {
+  if (S.phase !== "building" || cur().f !== u.f) return "It is not this unit's Building turn.";
+  if (u.moved === S.round) return "This unit already moved this turn.";
+  if (u.recruited === S.round && u.f !== "fire") return "Soldiers recruited this turn can't move yet.";
+  return "";
+}
+function reachable(u) {   // squares the unit can end on (orthogonal steps, 1 MOV each)
+  const max = movAllowance(u), passAll = u.f === "air", riverFree = u.f === "air" || u.f === "water";
+  const best = new Map(), out = new Set(), q = [[u.r, u.c, 0]];
+  best.set(key(u.r, u.c), 0);
+  while (q.length) {
+    const [r, c, d] = q.shift();
+    if (d >= max) continue;
+    for (const [nr, nc] of adjacentCells(r, c)) {
+      if (isCampSquare(nr, nc)) continue;
+      const hb = heldBy(nr, nc); if (hb && hb !== u.f) continue;      // held objectives are closed to enemies
+      const occ = unitAt(nr, nc);
+      if (occ && !(passAll)) continue;
+      const nd = d + 1, k = key(nr, nc);
+      if (best.has(k) && best.get(k) <= nd) continue;
+      best.set(k, nd);
+      if (!occ) out.add(k);
+      const stops = terrain(nr, nc) === "river" && !riverFree;          // entering a river ends movement
+      if (!stops) q.push([nr, nc, nd]);
+    }
+  }
+  return out;
+}
+
+// ---------- combat helpers ----------
+function inDeployOrNextToCamp(u) {
+  const p = S.players[pIndex(u.f)];
+  if (deployCells(p.cor).some(q => q[0] === u.r && q[1] === u.c)) return true;
+  return adjacentCells(u.r, u.c).some(q => campCells(p.cor).some(x => x[0] === q[0] && x[1] === q[1]));
+}
+function rangeOf(u) {
+  let rng = unitStats(u).RNG;
+  if (u.f === "nature" && u.cls === "Archer" && terrain(u.r, u.c) === "forest") rng += 1;
+  return rng;
+}
+function distToCamp(u, p) { return Math.min(...campCells(p.cor).map(q => dist([u.r, u.c], q))); }
+// Fighting numbers for a unit, with the automatic bonuses (terrain, faction, class abilities) listed.
+function fighter(u, foe, attacking) {
+  const st = unitStats(u), notes = [], t = terrain(u.r, u.c);
+  st.atkMod = 0; st.defMod = 0; st.barMod = 0; st.canDodge = true;
+  const cls = DATA.classes[u.cls];
+  if (t === "forest") { st.SPD += 2; notes.push("Forest: +2 SPD"); }
+  if (t === "hills" && u.f !== "air") { st.DEF += 1; st.BAR += 1; notes.push("Hills: +1 DEF, +1 BAR"); }
+  if (t === "river") { st.canDodge = false; notes.push("In a river: can't dodge"); if (u.f === "water") { st.DEF += 2; st.BAR += 2; notes.push("River-born: +2 DEF, +2 BAR"); } }
+  if (u.f === "earth" && inDeployOrNextToCamp(u)) { st.DEF += 2; st.BAR += 2; notes.push("Stoneskin: +2 DEF, +2 BAR"); }
+  if (adjacentCells(u.r, u.c).some(q => { const o = unitAt(q[0], q[1]); return o && o.f === u.f && o.cls === "Knight" && o !== u; })) { st.DEF += 1; notes.push("Guard (Knight next to it): +1 DEF"); }
+  if (foe && foe.unit) {
+    const ff = DATA.classes[foe.unit.cls].family;
+    if (u.cls === "Impaler" && ff === "Armor") { st.ATK += 2; notes.push("Impaler vs Armor: +2 ATK"); }
+    if (u.cls === "Archer" && ff === "Magic") { st.ATK += 1; notes.push("Archer vs Magic: +1 ATK"); }
+  }
+  if (foe && foe.camp && u.f === "nature") { st.ATK -= 2; notes.push("Tribalists vs Camp: -2 ATK"); }
+  if (attacking && u.f === "fire" && u.cls === "Juggernaut") { st.ATK += 1; notes.push("Conquerors Juggernaut attacking: +1 ATK"); }
+  for (const cr of u.cards || []) if (cr.faceUp && cardDef(cr).type === "Battle") notes.push("Battle card under it: " + cardDef(cr).name + " (add its bonus below)");
+  st.type = cls.type; st.notes = notes;
+  return st;
+}
+function strike(att, def, label) {
+  const lines = [];
+  const armour = att.type === "M" ? def.BAR + def.barMod : def.DEF + def.defMod;
+  const base = att.ATK + att.atkMod - armour;
+  const nd = def.camp ? 1 : 1 + ((att.SPD - def.SPD) >= 3 ? 1 : 0);
+  const rolls = []; for (let i = 0; i < nd; i++) rolls.push(d6());
+  let dmg = Math.max(0, base + rolls.reduce((a, b) => a + b, 0));
+  lines.push(`${label}: ATK ${att.ATK + att.atkMod} - ${att.type === "M" ? "BAR" : "DEF"} ${armour} = ${base}, +${nd} die: [${rolls.join(", ")}] -> ${dmg} damage`);
+  if (def.canDodge && !def.camp && dmg > 0) {
+    const a = d6(), b = d6(), tot = a + b + def.LCK;
+    if (tot >= 12) { lines.push(`   Dodge roll ${a}+${b}${def.LCK ? "+" + def.LCK + " LCK" : ""} = ${tot}: DODGED, no damage!`); dmg = 0; }
+    else lines.push(`   Dodge roll ${a}+${b}${def.LCK ? "+" + def.LCK + " LCK" : ""} = ${tot}: no dodge (needs 12+)`);
+  }
+  return { dmg, lines };
+}
+
+// ---------- cards ----------
+function cardDef(ref) { return ref.u !== undefined ? DATA.cards[ref.u] : FAC[ref.f].cards[ref.i]; }
+function cardSprite(ref) {
+  if (ref.u !== undefined) return { url: A + "cards_front.png", col: ref.u % 5, row: Math.floor(ref.u / 5), cols: 5, rows: Math.ceil(DATA.cards.length / 5) };
+  return { url: A + "fcards_" + ref.f + ".png", col: ref.i % 5, row: Math.floor(ref.i / 5), cols: 5, rows: 2 };
+}
+function cardStyle(ref, w) {
+  const s = cardSprite(ref), h = w * CH / CW;
+  return `width:${w}px;height:${h}px;background-image:url('${s.url}');background-size:${s.cols * w}px ${s.rows * h}px;background-position:-${s.col * w}px -${s.row * h}px`;
+}
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function draw(p, n) {
+  let got = 0;
+  for (let k = 0; k < n; k++) {
+    if (!S.deck.length) {
+      if (!S.discard.length) break;
+      S.deck = shuffle(S.discard.splice(0)); log("The Universal deck ran out: the Discard Pile was shuffled into a new deck.", "sys");
+    }
+    p.hand.push(S.deck.pop()); got++;
+  }
+  return got;
+}
+function timerOf(def) { const m = /Timer (\d+)/.exec(def.text); return m ? +m[1] : 0; }
+
+// ---------- setup ----------
+function openSetup() {
+  const n = +$("nPlayers").value, keys = DATA.factions.map(f => f.key), cors = Object.keys(CORNERS);
+  let h = "";
+  for (let i = 0; i < n; i++) {
+    h += `<div class="seat"><b>Player ${i + 1}</b><select class="sf">${DATA.factions.map((f, j) => `<option value="${f.key}" ${j === i ? "selected" : ""}>${f.order}. ${esc(f.title)}</option>`).join("")}</select>
+      <select class="sc">${cors.map((c, j) => `<option value="${c}" ${j === i ? "selected" : ""}>${CORNERS[c].name} corner</option>`).join("")}</select></div>`;
+  }
+  $("seats").innerHTML = h;
+  $("setupModal").classList.add("open");
+}
+function startGame() {
+  const fs = [...document.querySelectorAll("#seats .sf")].map(s => s.value), cs = [...document.querySelectorAll("#seats .sc")].map(s => s.value);
+  if (new Set(fs).size !== fs.length) return alert("Each player needs a different faction.");
+  if (new Set(cs).size !== cs.length) return alert("Each player needs a different corner.");
+  snapshot();
+  S = blankState(); S.auto = $("optAuto").checked;
+  const seats = fs.map((f, i) => ({ f, cor: cs[i] })).sort((a, b) => FAC[a.f].order - FAC[b.f].order);
+  for (const s of seats) S.players.push({ f: s.f, cor: s.cor, food: DATA.econ.StartFood, money: DATA.econ.StartMoney, hand: [], inplay: [], fUsed: {}, campDmg: 0, out: false });
+  DATA.cards.forEach((c, i) => { for (let k = 0; k < c.copies; k++) S.deck.push(i); });
+  shuffle(S.deck);
+  for (const p of S.players) {
+    draw(p, 3);
+    for (const [a, b] of [[0, 2], [2, 0]]) { const [r, c] = cornerCell(p.cor, a, b); S.units.push({ id: S.nextId++, f: p.f, cls: "Soldier", r, c, dmg: 0, cards: [] }); }
+  }
+  log("New game: " + S.players.map(p => FAC[p.f].title + " (" + CORNERS[p.cor].name + ")").join(", ") + ". Each player starts with 2 Soldiers and 3 cards.", "sys");
+  S.phase = "building"; S.turn = 0;
+  ui = { view: 0, sel: null, mode: null, cardSel: null, showHand: false, freeMove: false };
+  startBuildingTurn();
+  $("setupModal").classList.remove("open");
+  save(); render();
+}
+
+// ---------- turn flow ----------
+function startBuildingTurn() {
+  const p = cur(), F = FAC[p.f];
+  log(`Round ${S.round} - ${F.title}: Building turn.`, "sys");
+  if (S.auto) {
+    let food = DATA.econ.FoodIncome, money = econFor("MoneyIncome", p.f); const parts = [`base +${food} Food +${money} Money`];
+    const outp = S.tokens.filter(t => t.kind === "control" && t.f === p.f).length;
+    const towns = S.tokens.filter(t => t.kind === "capture" && t.captured && t.f === p.f).length;
+    if (outp) { food += outp * DATA.econ.OutpostFood; parts.push(`${outp} Outpost(s) +${outp * DATA.econ.OutpostFood} Food`); }
+    if (towns) { money += towns * DATA.econ.TownMoney; parts.push(`${towns} Town(s) +${towns * DATA.econ.TownMoney} Money`); }
+    for (const ip of p.inplay) { const d = cardDef(ip), e = DATA.autoEngines[d.name]; if (e && ip.u !== undefined) { food += e.food; money += e.money; parts.push(d.name); } }
+    if (heartHolder() === p.f) { food += 1; money += 1; parts.push("Heart +1 Food +1 Money"); }
+    p.food += food; p.money += money;
+    log(`${F.title} income: +${food} Food, +${money} Money (${parts.join("; ")}). Other Engines and passives: add by hand.`);
+  }
+  const n = draw(p, 2 + (heartHolder() === p.f ? 1 : 0));
+  log(`${F.title} draws ${n} card(s)${heartHolder() === p.f ? " (Heart: +1)" : ""}.`);
+  for (const ip of p.inplay) { const d = cardDef(ip); if (d.type === "Project" && ip.markers > 0) { ip.markers--; if (!ip.markers) log(`${F.title}'s Project ${d.name} is now ACTIVE.`, "sys"); } }
+  if (p.f === "nature") for (const u of S.units.filter(u => u.f === "nature" && u.dmg > 0 && terrain(u.r, u.c) === "forest")) { u.dmg = Math.max(0, u.dmg - 2); log(`Regrowth: ${F.title} ${u.cls} heals 2.`); }
+  ui.view = S.turn; ui.showHand = false; ui.sel = null; ui.mode = null; ui.cardSel = null;
+}
+function startActionTurn() {
+  log(`Round ${S.round} - ${FAC[cur().f].title}: Action turn (battles).`, "sys");
+  ui.view = S.turn; ui.showHand = false; ui.sel = null; ui.mode = null; ui.cardSel = null;
+}
+function nextAlive(from) { for (let i = from; i < S.players.length; i++) if (alive(S.players[i])) return i; return -1; }
+function endTurn() {
+  const p = cur();
+  if (S.phase === "building" && p.hand.length > handLimit(p.f)) {
+    return msg(`<h2>Too many cards</h2><p>${esc(FAC[p.f].title)} has ${p.hand.length} cards; the hand limit is ${handLimit(p.f)}. Discard ${p.hand.length - handLimit(p.f)} first (select a card in your hand, then Discard).</p>`);
+  }
+  act("end turn", () => {
+    const nx = nextAlive(S.turn + 1);
+    if (nx >= 0) { S.turn = nx; S.phase === "building" ? startBuildingTurn() : startActionTurn(); return; }
+    if (S.phase === "building") { S.phase = "action"; S.turn = nextAlive(0); startActionTurn(); return; }
+    endOfRound();
+    S.round++; S.phase = "building"; S.turn = nextAlive(0); startBuildingTurn();
+  });
+}
+function endOfRound() {
+  log(`End of round ${S.round}: claim objectives, then upkeep.`, "sys");
+  for (const p of S.players.filter(alive)) {
+    const F = FAC[p.f];
+    // Outposts: a unit that is on it now (and no enemy on it) claims it with a Control marker.
+    for (const k of OUTPOST) {
+      const r = Math.floor(k / N), c = k % N; if (tokenAt(r, c)) continue;
+      const mine = (p.f === "nature") ? (unitAt(r, c) ? unitAt(r, c).f === p.f : adjacentCells(r, c).some(q => { const o = unitAt(q[0], q[1]); return o && o.f === p.f; }))
+                                      : (unitAt(r, c) && unitAt(r, c).f === p.f);
+      if (mine && !(unitAt(r, c) && unitAt(r, c).f !== p.f)) { S.tokens.push({ kind: "control", f: p.f, r, c }); log(`${F.title} claims an Outpost (Control marker placed).`); }
+    }
+    // Towns: first round places a CAPTURING token, the next round flips it to CAPTURED.
+    for (const k of TOWN) {
+      const r = Math.floor(k / N), c = k % N, t = tokenAt(r, c), u = unitAt(r, c);
+      const here = u ? u.f === p.f : (p.f === "nature" && adjacentCells(r, c).some(q => { const o = unitAt(q[0], q[1]); return o && o.f === p.f; }));
+      if (t && t.f === p.f && !t.captured) {
+        if (here) { t.captured = true; log(`${F.title} CAPTURES a Town (+${DATA.econ.TownMoney} Money each Income).`); }
+        else { S.tokens.splice(S.tokens.indexOf(t), 1); log(`${F.title} left a Town before capturing it: token removed.`); }
+      } else if (!t && here && !(u && u.f !== p.f)) { S.tokens.push({ kind: "capture", f: p.f, r, c, captured: false }); log(`${F.title} starts capturing a Town (CAPTURING token placed).`); }
+    }
+  }
+  if (S.auto) for (const p of S.players.filter(alive)) {
+    const n = S.units.filter(u => u.f === p.f).length, cost = n * DATA.econ.Upkeep, F = FAC[p.f];
+    if (p.food >= cost) { p.food -= cost; log(`${F.title} pays upkeep: ${cost} Food for ${n} units.`); }
+    else { const short = cost - p.food; p.food = 0; log(`${F.title} can't pay upkeep (${cost} Food): remove ${short} unit(s), promoted units before Soldiers.`, "sys"); }
+  }
+}
+
+// ---------- actions ----------
+function recruitCells(p) {
+  const cells = deployCells(p.cor).filter(q => !unitAt(q[0], q[1]));
+  for (const t of S.tokens) if (t.kind === "control" && t.f === p.f && !unitAt(t.r, t.c)) cells.push([t.r, t.c]);
+  return cells;
+}
+function startRecruit() {
+  const p = P(ui.view);
+  if (S.units.filter(u => u.f === p.f).length >= DATA.econ.MaxUnits) return msg("<h2>Army full</h2><p>You already have the maximum of 10 units.</p>");
+  if (p.food < 1) return msg("<h2>Not enough Food</h2><p>Recruiting costs 1 Food.</p>");
+  ui.mode = { kind: "recruit" }; ui.sel = null; render();
+}
+function promote(u, cls) {
+  const p = S.players[pIndex(u.f)], food = econFor("PromoteFood", u.f), money = econFor("PromoteMoney", u.f);
+  if (p.food < food || p.money < money) return msg(`<h2>Can't afford it</h2><p>Promoting costs ${food} Food + ${money} Money.</p>`);
+  act("promote", () => { p.food -= food; p.money -= money; u.cls = cls; u.dmg = 0; log(`${FAC[u.f].title} promotes a Soldier to ${cls} (-${food} Food, -${money} Money).`); });
+}
+function removeUnit(u, why) {
+  for (const cr of u.cards || []) if (cr.u !== undefined) S.discard.push(cr.u);
+  S.units.splice(S.units.indexOf(u), 1);
+  log(`${FAC[u.f].title} ${u.cls} is ${why || "removed"}.`);
+  if (ui.sel && ui.sel.unit === u.id) ui.sel = null;
+}
+function eliminate(p, by) {
+  p.out = true;
+  for (const u of S.units.filter(u => u.f === p.f)) removeUnit(u, "removed (its faction was knocked out)");
+  S.tokens = S.tokens.filter(t => t.f !== p.f);
+  for (const c of p.hand) S.discard.push(c); p.hand = [];
+  for (const ip of p.inplay) if (ip.u !== undefined) S.discard.push(ip.u); p.inplay = [];
+  log(`${FAC[p.f].title}'s Camp is destroyed: they are knocked out!`, "sys");
+  if (by) { const q = S.players[pIndex(by)]; q.food += 3; q.money += 3; draw(q, 2); log(`${FAC[by].title} gains 3 Food, 3 Money and 2 cards for destroying it.`); }
+  const left = S.players.filter(alive);
+  if (left.length === 1) { log(`${FAC[left[0].f].title} WINS - the last Camp standing!`, "sys"); setTimeout(() => msg(`<h2>${esc(FAC[left[0].f].title)} win!</h2><p>Theirs is the last Camp standing.</p>`), 50); }
+}
+
+// Play a card from the hand (Universal) or the faction row.
+function playCard(p, ref, fromHand) {
+  const d = cardDef(ref), F = FAC[p.f];
+  if (p.money < d.cost) return msg(`<h2>Not enough Money</h2><p>${esc(d.name)} costs ${d.cost} Money.</p>`);
+  const attach = d.type === "Battle" || d.type === "Setup" || /^Attach/.test(d.text);
+  if (attach) { ui.mode = { kind: "attach", ref, fromHand, p: S.players.indexOf(p) }; ui.sel = null; render(); return; }
+  act("play card", () => {
+    p.money -= d.cost;
+    if (fromHand) p.hand.splice(p.hand.indexOf(ref.u), 1);
+    const emp = d.emp && heartHolder() === p.f ? ` EMPOWERED (holds the Heart): ${d.emp}` : "";
+    if (d.type === "Engine" || d.type === "Project") {
+      p.inplay.push(Object.assign({}, ref, { markers: timerOf(d) }));
+      log(`${F.title} plays ${d.name} (${d.type}, -${d.cost} Money)${d.type === "Project" ? `, ${timerOf(d)} markers` : ""}.${emp}`);
+    } else {
+      if (fromHand) S.discard.push(ref.u); else p.fUsed[ref.i] = stamp();
+      log(`${F.title} plays ${d.name} (${d.type}, -${d.cost} Money): ${d.text}${emp}`);
+    }
+    ui.cardSel = null;
+  });
+}
+function attachTo(u) {
+  const m = ui.mode, p = S.players[m.p], d = cardDef(m.ref);
+  if (u.f !== p.f) return;
+  const faceUp = d.type !== "Setup";
+  if (d.type === "Battle" && u.cards.some(c => c.faceUp && cardDef(c).type === "Battle")) return msg("<h2>One Battle card per unit</h2><p>This unit already has a Battle card.</p>");
+  if (d.type === "Setup" && u.cards.some(c => !c.faceUp)) return msg("<h2>One Setup card per unit</h2><p>This unit already has a Setup card.</p>");
+  act("attach", () => {
+    p.money -= d.cost;
+    if (m.fromHand) p.hand.splice(p.hand.indexOf(m.ref.u), 1); else p.fUsed[m.ref.i] = stamp();
+    u.cards.push(Object.assign({}, m.ref, { faceUp }));
+    log(`${FAC[p.f].title} puts ${faceUp ? d.name : "a face-down Setup card"} under a ${u.cls} (-${d.cost} Money).`);
+    ui.mode = null; ui.cardSel = null;
+  });
+}
+function discardFromHand(p, u) { act("discard", () => { p.hand.splice(p.hand.indexOf(u), 1); S.discard.push(u); log(`${FAC[p.f].title} discards ${DATA.cards[u].name}.`); ui.cardSel = null; }); }
+
+// ---------- battle ----------
+function targetsFor(u) {
+  const out = []; if (S.phase !== "action" || cur().f !== u.f || u.attacked === S.round) return out;
+  const rng = rangeOf(u);
+  for (const o of S.units) if (o.f !== u.f && dist([u.r, u.c], [o.r, o.c]) <= rng) out.push({ unit: o, r: o.r, c: o.c });
+  for (const p of S.players) if (!p.out && p.f !== u.f && distToCamp(u, p) <= rng) for (const q of campCells(p.cor)) out.push({ camp: p, r: q[0], c: q[1] });
+  for (const t of S.tokens) if (t.f !== u.f && dist([u.r, u.c], [t.r, t.c]) === 1 && !unitAt(t.r, t.c)) out.push({ token: t, r: t.r, c: t.c });
+  return out;
+}
+function openBattle(u, tg) {
+  if (tg.token) {
+    return act("break", () => { S.tokens.splice(S.tokens.indexOf(tg.token), 1); u.attacked = S.round; log(`${FAC[u.f].title} ${u.cls} breaks ${FAC[tg.token.f].title}'s ${tg.token.kind === "control" ? "Control marker" : "capture token"}.`); });
+  }
+  const foe = tg.unit ? { unit: tg.unit } : { camp: tg.camp };
+  const A1 = fighter(u, foe, true);
+  let D1, dName;
+  if (tg.unit) { D1 = fighter(tg.unit, { unit: u }, false); dName = `${FAC[tg.unit.f].title} ${tg.unit.cls}`; }
+  else { const cp = tg.camp; D1 = { HP: FAC[cp.f].campHP, DEF: 3, BAR: 3, SPD: 0, LCK: 0, RNG: 0, atkMod: 0, defMod: 0, barMod: 0, canDodge: false, camp: true, notes: ["Camps never hit back and can't dodge. 1 damage die."] }; dName = `${FAC[cp.f].title} Camp`; }
+  const counter = tg.unit && dist([u.r, u.c], [tg.unit.r, tg.unit.c]) <= rangeOf(tg.unit);
+  const row = (st, k) => `<tr><td>${k}</td><td><b>${st[k]}</b></td></tr>`;
+  const sideHtml = (title, st, hp, pre) => `<div class="side"><h3>${esc(title)}</h3><table>${["ATK", "DEF", "BAR", "SPD", "LCK"].map(k => row(st, k)).join("")}<tr><td>HP left</td><td><b>${hp}</b></td></tr></table>
+    <div class="hint">${(st.notes || []).map(esc).join("<br>") || "No automatic bonuses."}</div>
+    <div class="row" style="margin-top:6px">Card / other bonus: ATK <input type="number" id="${pre}A" value="0" style="width:52px"> DEF/BAR <input type="number" id="${pre}D" value="0" style="width:52px"></div></div>`;
+  const dHP = tg.unit ? hpLeft(tg.unit) : FAC[tg.camp.f].campHP - tg.camp.campDmg;
+  $("battleBody").innerHTML = `<h2>Battle</h2><div class="battle">${sideHtml("Attacker: " + FAC[u.f].title + " " + u.cls, A1, hpLeft(u), "a")}${sideHtml("Defender: " + dName, D1, dHP, "d")}</div>
+    <p class="hint">Damage per strike = ATK - DEF (physical) or - BAR (magic) + 1 die, +1 die if SPD is 3+ higher. The target rolls 2 dice + LCK: 12+ dodges. ${counter ? "The defender is in range and will strike back if it survives." : (tg.unit ? "The defender is out of its range: no counterattack." : "")}</p>
+    <div class="row" style="justify-content:flex-end"><button onclick="closeModal('battleModal')">Cancel</button><button class="primary" id="btnFight">Fight!</button></div><div id="bres"></div>`;
+  $("battleModal").classList.add("open");
+  $("btnFight").onclick = () => {
+    const am = +$("aA").value || 0, ad = +$("aD").value || 0, dm = +$("dA").value || 0, dd = +$("dD").value || 0;
+    A1.atkMod += am; A1.defMod += ad; A1.barMod += ad; D1.atkMod += dm; D1.defMod += dd; D1.barMod += dd;
+    let out = [];
+    act("battle", () => {
+      u.attacked = S.round;
+      const s1 = strike(A1, D1, "Attack"); out.push(...s1.lines);
+      if (tg.unit) {
+        tg.unit.dmg += s1.dmg;
+        if (hpLeft(tg.unit) <= 0) { out.push(`${dName} is destroyed!`); removeUnit(tg.unit, "destroyed"); }
+        else if (counter) {
+          const s2 = strike(D1, A1, "Counterattack"); out.push(...s2.lines); u.dmg += s2.dmg;
+          if (hpLeft(u) <= 0) { out.push(`The attacker is destroyed!`); removeUnit(u, "destroyed"); }
+        }
+      } else {
+        tg.camp.campDmg += s1.dmg; out.push(`${dName}: ${Math.max(0, FAC[tg.camp.f].campHP - tg.camp.campDmg)} HP left.`);
+        if (tg.camp.campDmg >= FAC[tg.camp.f].campHP) eliminate(tg.camp, u.f);
+      }
+      for (const w of [u, tg.unit]) if (w && S.units.includes(w)) {
+        if (w.cls === "Monk" && w.dmg > 0) { w.dmg -= 1; out.push(`${FAC[w.f].title} Monk heals 1.`); }
+        const used = w.cards.filter(c => c.faceUp && cardDef(c).type === "Battle");
+        for (const c of used) { w.cards.splice(w.cards.indexOf(c), 1); if (c.u !== undefined) S.discard.push(c.u); out.push(`${cardDef(c).name} is used up and discarded.`); }
+      }
+      log(`BATTLE - ${FAC[u.f].title} ${u.cls} vs ${dName}:`, "sys"); out.forEach(l => log(l));
+    });
+    $("bres").innerHTML = `<div class="result">${out.map(esc).join("\n")}</div><div class="row" style="justify-content:flex-end;margin-top:8px"><button class="primary" onclick="closeModal('battleModal')">Done</button></div>`;
+    $("btnFight").disabled = true;
+  };
+}
+
+// ---------- rendering ----------
+let cell = 40;
+function layout() {
+  const side = window.innerWidth > 1100 ? 400 : 0;
+  const sz = Math.max(480, Math.min(window.innerHeight - 70, window.innerWidth - side - 40));
+  cell = Math.floor(sz / N);
+  const b = $("board"); b.style.width = b.style.height = cell * N + "px";
+  b.style.backgroundImage = `url('${A}board.png')`;
+}
+function render() {
+  if (!S) return;
+  renderStatus(); renderBoard(); renderPlayers(); renderPlayerBox(); renderSel(); renderLog();
+}
+function renderStatus() {
+  const p = cur(), F = FAC[p.f];
+  const ph = { building: "Building phase", action: "Action phase" }[S.phase] || S.phase;
+  $("status").innerHTML = `Round ${S.round} &middot; ${ph} &middot; turn: <span class="who" style="background:${F.color};color:${F.ink}">${esc(F.title)}</span>`;
+  $("btnEnd").textContent = S.phase === "action" && nextAlive(S.turn + 1) < 0 ? "End round" : "End turn";
+  $("btnUndo").disabled = !undoStack.length;
+}
+function px(n) { return n + "px"; }
+function renderBoard() {
+  const b = $("board"); b.innerHTML = "";
+  const add = (cls, r, c, w, h, html, pad) => { const d = document.createElement("div"); d.className = "piece " + cls;
+    const p = pad || 0; d.style.left = px(c * cell + p); d.style.top = px(r * cell + p); d.style.width = px(w * cell - 2 * p); d.style.height = px(h * cell - 2 * p); d.innerHTML = html || ""; b.appendChild(d); return d; };
+  // highlights
+  const selU = ui.sel && ui.sel.unit ? S.units.find(u => u.id === ui.sel.unit) : null;
+  if (ui.mode && ui.mode.kind === "recruit") for (const q of recruitCells(P(ui.view))) add("hl place", q[0], q[1], 1, 1);
+  if (ui.mode && ui.mode.kind === "attach") for (const u of S.units.filter(u => u.f === S.players[ui.mode.p].f)) add("hl place", u.r, u.c, 1, 1);
+  if (selU && !ui.mode) {
+    if (S.phase === "building" && !canMoveNow(selU)) for (const k of reachable(selU)) add("hl move", Math.floor(k / N), k % N, 1, 1);
+    for (const t of targetsFor(selU)) add("hl target", t.r, t.c, 1, 1);
+  }
+  // camps
+  for (const p of S.players) if (!p.out) {
+    const cc = campCells(p.cor), r = Math.min(...cc.map(q => q[0])), c = Math.min(...cc.map(q => q[1]));
+    const hp = FAC[p.f].campHP - p.campDmg;
+    add("camp" + (ui.sel && ui.sel.camp === p.f ? " sel" : ""), r, c, 2, 2, `<img src="${A}camp_${p.f}.png" alt=""><span class="hp${p.campDmg ? " hurt" : ""}">${hp}/${FAC[p.f].campHP}</span>`, cell * 0.06);
+  }
+  // tokens
+  for (const t of S.tokens) {
+    const img = t.kind === "control" ? `control_${t.f}.png` : `capture_${t.f}_${t.captured ? "b" : "a"}.png`;
+    add("tok", t.r, t.c, 1, 1, `<img src="${A}${img}" alt="">`, unitAt(t.r, t.c) ? cell * 0.02 : cell * 0.12);
+  }
+  // units
+  for (const u of S.units) {
+    const hp = hpLeft(u), max = unitStats(u).HP, nCards = (u.cards || []).length;
+    const done = (S.phase === "building" && u.moved === S.round) || (S.phase === "action" && u.attacked === S.round);
+    add("unit" + (ui.sel && ui.sel.unit === u.id ? " sel" : ""), u.r, u.c, 1, 1,
+      `<img src="${A}unit_${u.f}_${u.cls.toLowerCase()}.png" alt="">${u.dmg ? `<span class="hp hurt">${hp}/${max}</span>` : ""}${nCards ? `<span class="badge">${nCards}</span>` : ""}${done ? `<span class="done">&#10003;</span>` : ""}`,
+      cell * (unitAt(u.r, u.c) && tokenAt(u.r, u.c) ? 0.14 : 0.07));
+  }
+}
+function renderPlayers() {
+  $("players").innerHTML = S.players.map((p, i) => { const F = FAC[p.f];
+    return `<span class="ptab${i === ui.view ? " viewing" : ""}${i === S.turn ? " turn" : ""}${p.out ? " out" : ""}" style="background:${F.color};color:${F.ink}" onclick="ui.view=${i};ui.showHand=false;ui.cardSel=null;render()">${F.order}. ${esc(F.title)} &middot; ${p.food}F ${p.money}M &middot; ${p.hand.length} cards</span>`; }).join("")
+    + `<span class="hint" style="align-self:center">Click a player to see their board (for Reactions or fixing numbers).</span>`;
+}
+function renderPlayerBox() {
+  const i = ui.view, p = P(i), F = FAC[p.f], mine = i === S.turn;
+  const units = S.units.filter(u => u.f === p.f).length;
+  let h = `<div class="row" style="justify-content:space-between"><h3 style="color:${F.color}">${esc(F.title)} <span class="muted" style="font-family:system-ui;font-size:12px">${CORNERS[p.cor].name} corner &middot; ${units}/${DATA.econ.MaxUnits} units &middot; Camp ${FAC[p.f].campHP - p.campDmg}/${FAC[p.f].campHP} HP${heartHolder() === p.f ? " &middot; <b>holds the Heart</b>" : ""}</span></h3>
+     <button class="small" onclick="showRef('mat_${p.f}')">Faction rules</button></div>
+    <div class="res">
+      <span class="r">Food <button class="small" onclick="adj(${i},'food',-1)">-</button><span class="v">${p.food}</span><button class="small" onclick="adj(${i},'food',1)">+</button></span>
+      <span class="r">Money <button class="small" onclick="adj(${i},'money',-1)">-</button><span class="v">${p.money}</span><button class="small" onclick="adj(${i},'money',1)">+</button></span>
+      ${mine && S.phase === "building" ? `<button onclick="startRecruit()">Recruit Soldier (1 Food)</button>` : ""}
+      ${mine && S.phase === "building" && p.f === "air" ? "" : ""}
+    </div>`;
+  // hand
+  h += `<div class="row" style="justify-content:space-between;margin-top:4px"><b>Hand (${p.hand.length}/${handLimit(p.f)})</b>
+    <button class="small" onclick="ui.showHand=!ui.showHand;ui.cardSel=null;render()">${ui.showHand ? "Hide hand" : "Show hand"}</button></div>`;
+  if (ui.showHand) {
+    h += `<div class="cards" style="margin-top:4px">${p.hand.map((u, k) => `<div class="card${ui.cardSel && ui.cardSel.hand === k ? " sel" : ""}" style="${cardStyle({ u }, 96)}" data-zoom='${JSON.stringify({ u })}' onclick="ui.cardSel={hand:${k}};render()"></div>`).join("") || `<span class="muted">No cards.</span>`}</div>`;
+    if (ui.cardSel && ui.cardSel.hand !== undefined && p.hand[ui.cardSel.hand] !== undefined) {
+      const u = p.hand[ui.cardSel.hand], d = DATA.cards[u];
+      h += `<div class="row" style="margin-top:6px"><b>${esc(d.name)}</b> <span class="muted">${d.type}, ${d.cost} Money</span>
+        <button class="primary small" onclick="playCard(P(${i}),{u:${u}},true)">Play</button><button class="small" onclick="discardFromHand(P(${i}),${u})">Discard</button></div>
+        <div class="hint">${esc(d.text)}${d.emp ? `<br>Empowered (while you hold the Heart): ${esc(d.emp)}` : ""}</div>`;
+    }
+  } else h += `<div class="hint">Hidden. ${mine ? "Only you should look: press Show hand." : ""}</div>`;
+  // faction cards
+  h += `<div style="margin-top:8px"><b>Faction cards</b> <span class="hint">reusable: pay each use, once per turn. Engines/Projects stay once played.</span></div>
+    <div class="cards" style="margin-top:4px">${F.cards.map((c, k) => { const ref = { f: p.f, i: k };
+      const inPlay = p.inplay.some(ip => ip.f === p.f && ip.i === k), used = p.fUsed[k] === stamp();
+      return `<div class="card${inPlay || used ? " used" : ""}${ui.cardSel && ui.cardSel.fc === k ? " sel" : ""}" style="${cardStyle(ref, 72)}" data-zoom='${JSON.stringify(ref)}' onclick="ui.cardSel={fc:${k}};render()">${inPlay ? '<span class="tag">in play</span>' : used ? '<span class="tag">used</span>' : ""}</div>`; }).join("")}</div>`;
+  if (ui.cardSel && ui.cardSel.fc !== undefined) {
+    const k = ui.cardSel.fc, d = F.cards[k], inPlay = p.inplay.some(ip => ip.f === p.f && ip.i === k), used = p.fUsed[k] === stamp();
+    h += `<div class="row" style="margin-top:6px"><b>${esc(d.name)}</b> <span class="muted">${d.type}, ${d.cost} Money</span>
+      <button class="primary small" ${inPlay || used ? "disabled" : ""} onclick="playCard(P(${i}),{f:'${p.f}',i:${k}},false)">${d.type === "Engine" || d.type === "Project" ? "Put in play" : "Use"}</button></div><div class="hint">${esc(d.text)}</div>`;
+  }
+  // in play
+  h += `<div style="margin-top:8px"><b>Engines &amp; Projects in play</b></div><div class="inplay">${p.inplay.map((ip, k) => { const d = cardDef(ip);
+      const auto = ip.u !== undefined && DATA.autoEngines[d.name];
+      return `<div class="it" data-zoom='${JSON.stringify(ip.u !== undefined ? { u: ip.u } : { f: ip.f, i: ip.i })}'><span class="n"><b>${esc(d.name)}</b> <span class="muted">${d.type === "Project" ? (ip.markers ? ip.markers + " markers left" : "ACTIVE") : d.type}${auto ? " &middot; auto income" : ""}</span></span>
+        <button class="small" onclick="markers(${i},${k},-1)">-</button><span>${ip.markers || 0}</span><button class="small" onclick="markers(${i},${k},1)">+</button>
+        <button class="small" onclick="removeInplay(${i},${k})">Remove</button></div>`; }).join("") || `<span class="muted">Nothing yet.</span>`}</div>`;
+  if (ui.mode) h += `<div class="result" style="border-color:#2b8a3e">${ui.mode.kind === "recruit" ? "Click a green square (your DEPLOY squares or your held Outposts) to place the new Soldier." : "Click one of your units (green) to put the card under it."} <button class="small" onclick="ui.mode=null;render()">Cancel</button></div>`;
+  $("playerBox").innerHTML = h;
+}
+function renderSel() {
+  let h = "";
+  const u = ui.sel && ui.sel.unit ? S.units.find(x => x.id === ui.sel.unit) : null;
+  if (u) {
+    const F = FAC[u.f], st = unitStats(u), mineTurn = cur().f === u.f;
+    h += `<h3><span style="color:${F.color}">${esc(F.title)}</span> ${u.cls}${u.mw ? " (Masterwork +2 " + u.mw + ")" : ""}</h3>
+      <div>${statLine(st)} &middot; <b>HP ${hpLeft(u)}/${st.HP}</b></div>
+      <div class="row" style="margin-top:4px">Damage <button class="small" onclick="dmgUnit(${u.id},-1)">-</button><b>${u.dmg}</b><button class="small" onclick="dmgUnit(${u.id},1)">+</button>
+        <button class="small" onclick="act('remove',()=>removeUnit(S.units.find(x=>x.id===${u.id}),'removed by hand'))">Remove unit</button>
+        <label class="hint"><input type="checkbox" ${ui.freeMove ? "checked" : ""} onchange="ui.freeMove=this.checked;render()"> Free move (click any empty square)</label></div>`;
+    const why = canMoveNow(u);
+    if (S.phase === "building") h += `<div class="hint">${why || `Can move up to ${movAllowance(u)} squares: click a yellow square.`}</div>`;
+    if (S.phase === "action") h += `<div class="hint">${!mineTurn ? "Not this unit's Action turn." : u.attacked === S.round ? "This unit already fought this round." : "Click a red square to attack (enemy unit or Camp in range, or a token next to it)."}</div>`;
+    if (u.cls === "Soldier" && mineTurn && S.phase === "building") {
+      const food = econFor("PromoteFood", u.f), money = econFor("PromoteMoney", u.f);
+      h += `<div style="margin-top:6px"><b>Promote</b> <span class="hint">(${food} Food + ${money} Money)</span></div><div class="row">${DATA.classOrder.filter(c => c !== "Soldier").map(c => `<button class="small" onclick="promote(S.units.find(x=>x.id===${u.id}),'${c}')">${c}</button>`).join("")}</div>`;
+    }
+    if (u.f === "steel" && u.cls !== "Soldier" && !u.mw && mineTurn && S.phase === "building")
+      h += `<div class="row" style="margin-top:4px"><span class="hint">Masterwork (3 Money): +2 to</span>${["ATK", "DEF", "BAR", "SPD", "MOV", "HP"].map(s => `<button class="small" onclick="masterwork(${u.id},'${s}')">${s}</button>`).join("")}</div>`;
+    if (u.cards.length) {
+      const showSecret = mineTurn && ui.showHand;
+      h += `<div style="margin-top:6px"><b>Cards under it</b></div><div class="inplay">${u.cards.map((c, k) => `<div class="it"><span class="n">${c.faceUp || showSecret ? esc(cardDef(c).name) + ` <span class="muted">${cardDef(c).type}</span>` : "Face-down Setup card"}${!c.faceUp && showSecret ? " (hidden from others)" : ""}</span>
+        ${!c.faceUp ? `<button class="small" onclick="reveal(${u.id},${k})">Reveal</button>` : ""}<button class="small" onclick="dropCard(${u.id},${k})">Discard</button></div>`).join("")}</div>`;
+    }
+    const notes = [DATA.classes[u.cls].ability, ...unitNotes(u.f, u.cls)].filter(n => n && n !== "No ability.");
+    if (notes.length) h += `<div class="hint" style="margin-top:6px">${notes.map(esc).join("<br>")}</div>`;
+  } else if (ui.sel && ui.sel.camp) {
+    const p = S.players[pIndex(ui.sel.camp)], F = FAC[p.f];
+    h += `<h3>${esc(F.title)} Camp</h3><div>HP ${F.campHP - p.campDmg}/${F.campHP} &middot; DEF 3 &middot; BAR 3. Never hits back.</div>
+      <div class="row" style="margin-top:4px">Damage <button class="small" onclick="act('camp',()=>{P(${pIndex(p.f)}).campDmg=Math.max(0,P(${pIndex(p.f)}).campDmg-1)})">-</button><b>${p.campDmg}</b><button class="small" onclick="act('camp',()=>{P(${pIndex(p.f)}).campDmg++})">+</button></div>`;
+  } else {
+    h += `<h3>How to play here</h3><div class="hint">Click one of your units to select it. In your <b>Building</b> turn, yellow squares show where it can move; Soldiers can be promoted from here.
+      In your <b>Action</b> turn, red squares show what it can attack. Hover any piece for its stats. Use <b>End turn</b> when you're done; income, card draws, objectives and upkeep happen automatically.
+      Faction abilities and card effects that aren't automatic: use the Food/Money buttons, Free move, and the bonus boxes in the Battle window.</div>`;
+  }
+  $("selBox").innerHTML = h;
+}
+function statLine(st) { return `ATK ${st.ATK} &middot; DEF ${st.DEF} &middot; BAR ${st.BAR} &middot; SPD ${st.SPD} &middot; MOV ${st.MOV} &middot; RNG ${st.RNG}${st.LCK ? " &middot; LCK " + st.LCK : ""}`; }
+function renderLog() { const l = $("log"); l.innerHTML = S.log.map(e => `<div class="${e.c}">${esc(e.m)}</div>`).join(""); l.scrollTop = l.scrollHeight; }
+
+// small actions used from the panels
+function adj(i, k, d) { act("adjust", () => { P(i)[k] = Math.max(0, P(i)[k] + d); }); }
+function dmgUnit(id, d) { act("damage", () => { const u = S.units.find(x => x.id === id); u.dmg = Math.max(0, u.dmg + d); if (hpLeft(u) <= 0) removeUnit(u, "destroyed"); }); }
+function markers(i, k, d) { act("markers", () => { const ip = P(i).inplay[k]; ip.markers = Math.max(0, (ip.markers || 0) + d); }); }
+function removeInplay(i, k) { act("remove", () => { const ip = P(i).inplay.splice(k, 1)[0]; if (ip.u !== undefined) S.discard.push(ip.u); log(`${FAC[P(i).f].title} removes ${cardDef(ip).name} from play.`); }); }
+function reveal(id, k) { act("reveal", () => { const u = S.units.find(x => x.id === id), c = u.cards[k]; c.faceUp = true; log(`${FAC[u.f].title} reveals ${cardDef(c).name}: ${cardDef(c).text}`); }); }
+function dropCard(id, k) { act("drop", () => { const u = S.units.find(x => x.id === id), c = u.cards.splice(k, 1)[0]; if (c.u !== undefined) S.discard.push(c.u); log(`${FAC[u.f].title} discards ${c.faceUp ? cardDef(c).name : "a Setup card"} from a ${u.cls}.`); }); }
+function masterwork(id, s) { const u = S.units.find(x => x.id === id), p = S.players[pIndex(u.f)]; if (p.money < 3) return msg("<h2>Not enough Money</h2><p>Masterwork costs 3 Money.</p>"); act("masterwork", () => { p.money -= 3; u.mw = s; log(`Blacksmiths give a ${u.cls} a Masterwork marker: +2 ${s}.`); }); }
+
+// ---------- board clicks & hover ----------
+function cellFromEvent(e) { const b = $("board").getBoundingClientRect(); const c = Math.floor((e.clientX - b.left) / cell), r = Math.floor((e.clientY - b.top) / cell); return (r >= 0 && r < N && c >= 0 && c < N) ? [r, c] : null; }
+function onBoardClick(e) {
+  const rc = cellFromEvent(e); if (!rc || !S || S.phase === "setup") return;
+  const [r, c] = rc, u = unitAt(r, c), camp = campAt(r, c);
+  if (ui.mode && ui.mode.kind === "recruit") {
+    const p = P(ui.view);
+    if (recruitCells(p).some(q => q[0] === r && q[1] === c)) act("recruit", () => { p.food -= 1; S.units.push({ id: S.nextId++, f: p.f, cls: "Soldier", r, c, dmg: 0, cards: [], recruited: S.round }); log(`${FAC[p.f].title} recruits a Soldier (-1 Food).`); ui.mode = null; });
+    return;
+  }
+  if (ui.mode && ui.mode.kind === "attach") { if (u) attachTo(u); return; }
+  const selU = ui.sel && ui.sel.unit ? S.units.find(x => x.id === ui.sel.unit) : null;
+  if (selU) {
+    if (S.phase === "building" && !canMoveNow(selU) && reachable(selU).has(key(r, c)))
+      return act("move", () => { log(`${FAC[selU.f].title} ${selU.cls} moves.`); selU.r = r; selU.c = c; selU.moved = S.round; });
+    const tg = targetsFor(selU).find(t => t.r === r && t.c === c);
+    if (tg && (!u || u.f !== selU.f)) return openBattle(selU, tg);
+    if (ui.freeMove && !u && !isCampSquare(r, c)) return act("free move", () => { log(`${FAC[selU.f].title} ${selU.cls} is moved by hand.`); selU.r = r; selU.c = c; });
+  }
+  ui.sel = u ? { unit: u.id } : camp ? { camp: camp.f } : null;
+  render();
+}
+function tipFor(r, c) {
+  const u = unitAt(r, c), camp = campAt(r, c), t = tokenAt(r, c);
+  let h = "";
+  if (u) { const F = FAC[u.f], st = unitStats(u);
+    h += `<b style="color:${F.color}">${esc(F.title)}</b> <b>${u.cls}</b> <span class="note">${DATA.classes[u.cls].family}, ${DATA.classes[u.cls].type === "M" ? "magic" : "physical"}</span>
+      <div class="stats">HP ${hpLeft(u)}/${st.HP} &middot; ${statLine(st)}</div>`;
+    const notes = [DATA.classes[u.cls].ability, ...unitNotes(u.f, u.cls)].filter(n => n && n !== "No ability.");
+    if (notes.length) h += `<div class="note">${notes.map(esc).join("<br>")}</div>`;
+    if (u.cards.length) h += `<div class="note">Cards under it: ${u.cards.map(c => c.faceUp ? esc(cardDef(c).name) : "1 face-down").join(", ")}</div>`;
+  } else if (camp) { const F = FAC[camp.f]; h += `<b style="color:${F.color}">${esc(F.title)} Camp</b><div class="stats">HP ${F.campHP - camp.campDmg}/${F.campHP} &middot; DEF 3 &middot; BAR 3</div><div class="note">Destroy every other Camp to win.</div>`; }
+  if (t) { h += `<div class="note">${esc(FAC[t.f].title)} ${t.kind === "control" ? "Control marker (holds this Outpost: +1 Food)" : t.captured ? "CAPTURED token (holds this Town: +2 Money)" : "CAPTURING token (captured at the end of next round if their unit stays)"}</div>`; }
+  if (!h) {
+    const tr = terrain(r, c), name = isHeart(r, c) ? "Heart" : TOWN.has(key(r, c)) ? "Town" : OUTPOST.has(key(r, c)) ? "Outpost" : tr === "camp" ? "" : tr[0].toUpperCase() + tr.slice(1);
+    const info = { Heart: "+1 Food, +1 Money, +1 card while only your units are on it. The only way to Empower cards.", Town: "Stay 2 rounds to capture: +2 Money each Income.", Outpost: "Stay a round to claim: +1 Food each Income, and you can recruit here.",
+      Forest: "+2 SPD.", Hills: "+1 DEF, +1 BAR.", River: "Entering ends movement. Units in a river can't dodge.", Plains: "No effect." }[name];
+    if (name) h = `<b>${name}</b>${info ? `<div class="note">${info}</div>` : ""}`;
+  }
+  return h;
+}
+function onBoardMove(e) {
+  const tip = $("tip"); const rc = S ? cellFromEvent(e) : null;
+  const h = rc ? tipFor(rc[0], rc[1]) : "";
+  if (!h) { tip.style.display = "none"; return; }
+  tip.innerHTML = h; tip.style.display = "block";
+  const x = Math.min(e.clientX + 16, window.innerWidth - tip.offsetWidth - 8), y = Math.min(e.clientY + 16, window.innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+// big card preview on hover
+document.addEventListener("mousemove", e => {
+  const z = $("zoom"), el = e.target.closest && e.target.closest("[data-zoom]");
+  if (!el) { z.style.display = "none"; return; }
+  const ref = JSON.parse(el.getAttribute("data-zoom")); z.setAttribute("style", cardStyle(ref, 240)); z.style.display = "block";
+  const x = e.clientX + 260 > window.innerWidth ? e.clientX - 256 : e.clientX + 16, y = Math.min(e.clientY - 40, window.innerHeight - 345);
+  z.style.left = x + "px"; z.style.top = Math.max(8, y) + "px";
+});
+
+// ---------- modals ----------
+function closeModal(id) { $(id).classList.remove("open"); render(); }
+function msg(html, buttons) {
+  $("msgBody").innerHTML = html; const bb = $("msgBtns"); bb.innerHTML = "";
+  (buttons || [["OK", null, true]]).forEach(([t, fn, prim]) => { const b = document.createElement("button"); b.textContent = t; if (prim) b.className = "primary"; b.onclick = () => { $("msgModal").classList.remove("open"); if (fn) fn(); }; bb.appendChild(b); });
+  $("msgModal").classList.add("open");
+}
+function showRef(which) {
+  const tabs = [["reference", "The Round"], ["classes", "Classes & terrain"], ...DATA.factions.map(f => ["mat_" + f.key, f.title])];
+  $("refTabs").innerHTML = tabs.map(t => `<button class="small${t[0] === which ? " primary" : ""}" onclick="showRef('${t[0]}')">${esc(t[1])}</button>`).join("");
+  $("refBody").innerHTML = `<img class="refimg" src="${A}${which}.png" alt="">`;
+  $("refModal").classList.add("open");
+}
+
+// ---------- top bar ----------
+$("btnEnd").onclick = () => S && S.phase !== "setup" && endTurn();
+$("btnUndo").onclick = () => { if (!undoStack.length) return; S = JSON.parse(undoStack.pop()); ui.mode = null; ui.cardSel = null; save(); render(); };
+$("btnNew").onclick = () => openSetup();
+$("btnCancelSetup").onclick = () => { if (S && S.phase !== "setup") $("setupModal").classList.remove("open"); };
+$("btnStart").onclick = startGame;
+$("nPlayers").onchange = openSetup;
+$("btnRef").onclick = () => showRef("reference");
+$("btnDice").onclick = () => { const a = d6(), b = d6(); act("dice", () => log(`Dice: ${a} and ${b} (total ${a + b}).`)); };
+$("btnSave").onclick = () => { const blob = new Blob([JSON.stringify(S)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `elemental-war-round${S.round}.json`; a.click(); };
+$("btnLoad").onclick = () => $("fileIn").click();
+$("fileIn").onchange = e => { const f = e.target.files[0]; if (!f) return; f.text().then(t => { try { snapshot(); S = JSON.parse(t); ui = { view: S.turn, sel: null, mode: null, cardSel: null, showHand: false, freeMove: false }; save(); render(); } catch (err) { alert("That file isn't an Elemental War save."); } }); e.target.value = ""; };
+$("board").addEventListener("click", onBoardClick);
+$("board").addEventListener("mousemove", onBoardMove);
+$("board").addEventListener("mouseleave", () => $("tip").style.display = "none");
+document.addEventListener("keydown", e => { if (e.key === "Escape") { ui.mode = null; ui.sel = null; ui.cardSel = null; ["battleModal", "refModal", "msgModal"].forEach(m => $(m).classList.remove("open")); render(); } });
+window.addEventListener("resize", () => { layout(); render(); });
+
+// ---------- boot ----------
+layout();
+try { const s = localStorage.getItem("elementalwar.save"); if (s) S = JSON.parse(s); } catch (e) { S = null; }
+if (S && S.phase !== "setup") { ui.view = S.turn; render(); } else { S = null; openSetup(); }
+</script>
+</body>
+</html>
